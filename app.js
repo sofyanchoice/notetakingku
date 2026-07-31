@@ -4,7 +4,7 @@ KONFIGURASI
 const CLIENT_ID = "670272085628-e5s4aubec9fia1k31ppqm4k5c0tf64od.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
 const DATA_FILENAME = "catatan-app-data.json";
-const CACHE_KEY = "catatan_cache_v5";
+const CACHE_KEY = "catatan_cache_v6";
 const NB_COLORS = ["#FFD93D", "#FF5D8F", "#4CC9F0", "#B9E351", "#B98CE0", "#FF8B3D", "#6FE7C0"];
 
 /* ======================================================================
@@ -25,12 +25,13 @@ let editorSaveLabelTimer = null;
 let vditorInstance = null, vditorReady = false, pendingNote = null, suppressInput = false;
 let collapsedSections = new Set();
 let isResizing = false;
+let sidebarCollapsed = localStorage.getItem("catatan_sidebar_collapsed") === "true";
 
 function defaultState() {
   const nbId = uid(), secId = uid();
   return {
-    notebooks: [{ id: nbId, name: "Kerja", color: 0 }],
-    sections: [{ id: secId, notebookId: nbId, parentSectionId: null, name: "Umum", color: 0, order: 0 }],
+    notebooks: [{ id: nbId, name: "Work", color: 0 }],
+    sections: [{ id: secId, notebookId: nbId, parentSectionId: null, name: "General", color: 0, order: 0 }],
     notes: []
   };
 }
@@ -50,7 +51,7 @@ function migrate(data) {
   }
   if (data && Array.isArray(data.projects)) {
     const nbId = uid();
-    const notebooks = [{ id: nbId, name: "Catatanku", color: 0 }];
+    const notebooks = [{ id: nbId, name: "My Notes", color: 0 }];
     const sections = data.projects.map((p, i) => ({ 
       id: p.id, notebookId: nbId, parentSectionId: null, name: p.name, color: i, order: i 
     }));
@@ -82,6 +83,7 @@ BOOT & GOOGLE AUTH
 ====================================================================== */
 window.addEventListener("load", () => {
   loadCache();
+  applySidebarState();
   const check = setInterval(() => {
     if (window.google && google.accounts) { clearInterval(check); initGis(); }
   }, 100);
@@ -98,13 +100,19 @@ function initGis() {
     client_id: CLIENT_ID, scope: DRIVE_SCOPE, callback: onTokenResponse,
   });
   document.getElementById("signin-btn").addEventListener("click", () => {
-    setGateStatus("Membuka jendela masuk Google...");
+    setGateStatus("Opening Google sign-in...");
     tokenClient.requestAccessToken({ prompt: "consent" });
   });
   
-  // Auto-login jika sudah punya token
+  // AUTO-LOGIN: kalau sudah ada token, langsung masuk app tanpa prompt
   if (accessToken) {
-    tokenClient.requestAccessToken({ prompt: "" });
+    setGateStatus("Signing in automatically...");
+    enterApp().catch(err => {
+      console.error("Auto-login failed:", err);
+      localStorage.removeItem("catatan_token");
+      accessToken = null;
+      setGateStatus("Session expired. Please sign in again.");
+    });
   }
 }
 
@@ -112,7 +120,7 @@ function setGateStatus(msg) { document.getElementById("gate-status").textContent
 
 async function onTokenResponse(resp) {
   if (resp.error) { 
-    setGateStatus("Belum masuk. Klik tombol untuk mencoba lagi."); 
+    setGateStatus("Not signed in. Click the button to try again."); 
     localStorage.removeItem("catatan_token");
     accessToken = null;
     return; 
@@ -127,6 +135,7 @@ async function onTokenResponse(resp) {
 async function fetchUserEmail() {
   try {
     const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!r.ok) throw new Error("Failed to fetch user");
     const d = await r.json();
     document.getElementById("user-email").textContent = d.email || "";
   } catch (e) {}
@@ -138,7 +147,7 @@ document.getElementById("signout-btn").addEventListener("click", () => {
   localStorage.removeItem("catatan_token");
   document.getElementById("app").classList.add("hidden");
   document.getElementById("gate").classList.remove("hidden");
-  setGateStatus("Kamu sudah keluar.");
+  setGateStatus("You have been signed out.");
 });
 
 /* ======================================================================
@@ -148,7 +157,7 @@ async function enterApp() {
   document.getElementById("gate").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   fetchUserEmail();
-  setSyncStatus("menyinkronkan...", "saving");
+  setSyncStatus("syncing...", "saving");
   let migratedFromOld = false;
   try {
     await driveEnsureFile();
@@ -158,10 +167,10 @@ async function enterApp() {
       state = migrate(remote);
       saveCache();
     } else { state = migrate(state); }
-    setSyncStatus("tersambung", "ok");
+    setSyncStatus("connected", "ok");
   } catch (e) {
     console.error(e);
-    setSyncStatus("mode luring (offline)", "offline");
+    setSyncStatus("offline mode", "offline");
   }
   initVditor();
   currentNotebookId = state.notebooks[0] ? state.notebooks[0].id : null;
@@ -186,6 +195,7 @@ async function driveEnsureFile() {
   const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
+  if (!r.ok) throw new Error("Drive query failed");
   const d = await r.json();
   if (d.files && d.files.length > 0) {
     fileId = d.files[0].id;
@@ -222,15 +232,15 @@ async function driveLoadData() {
 
 async function driveSaveData() {
   if (!accessToken || !fileId) return;
-  setSyncStatus("menyimpan...", "saving");
+  setSyncStatus("saving...", "saving");
   try {
     await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify(state)
     });
-    setSyncStatus("tersambung", "ok");
-  } catch (e) { setSyncStatus("mode luring (offline)", "offline"); }
+    setSyncStatus("connected", "ok");
+  } catch (e) { setSyncStatus("offline mode", "offline"); }
 }
 
 function scheduleSave() {
@@ -246,7 +256,11 @@ function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toS
 function noteById(id) { return state.notes.find(n => n.id === id); }
 function sectionById(id) { return state.sections.find(s => s.id === id); }
 function notebookById(id) { return state.notebooks.find(n => n.id === id); }
-function allSectionsOf(nbId) { return state.sections.filter(s => s.notebookId === nbId).sort((a,b) => a.name.localeCompare(b.name)); }
+function allSectionsOf(nbId) { 
+  return state.sections
+    .filter(s => s.notebookId === nbId && !s.parentSectionId)
+    .sort((a,b) => a.name.localeCompare(b.name)); 
+}
 function allNotesOf(secId) { return state.notes.filter(n => n.sectionId === secId).sort((a,b) => (a.order||0) - (b.order||0)); }
 function crumbFor(n) {
   const sec = sectionById(n.sectionId);
@@ -265,12 +279,13 @@ function matchesSearch(n, q) {
   const hay = (n.title + " " + plainText(n.content) + " " + (n.categories || []).join(" ") + " " + crumbFor(n)).toLowerCase();
   return hay.includes(q);
 }
-function fmtDate(iso) { if (!iso) return ""; return new Date(iso).toLocaleDateString("id-ID", { day: "numeric", month: "short" }); }
+function fmtDate(iso) { if (!iso) return ""; return new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short" }); }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
 
-// --- CUSTOM MODAL ---
+// --- CUSTOM MODAL (dengan Enter/Esc support) ---
+let modalKeyHandler = null;
 function showCustomModal({ title, message, showInput = false, inputValue = '', confirmText = 'OK', confirmClass = 'btn-red' }) {
   return new Promise((resolve) => {
     const modal = document.getElementById('custom-modal');
@@ -290,15 +305,37 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
     } else { inputEl.classList.add('hidden'); }
 
     modal.classList.remove('hidden');
-    const cleanup = (result) => { modal.classList.add('hidden'); resolve(result); };
+    
+    const cleanup = (result) => { 
+      modal.classList.add('hidden'); 
+      if (modalKeyHandler) {
+        document.removeEventListener('keydown', modalKeyHandler);
+        modalKeyHandler = null;
+      }
+      resolve(result); 
+    };
 
     const newConfirm = confirmBtn.cloneNode(true);
     confirmBtn.parentNode.replaceChild(newConfirm, confirmBtn);
+    newConfirm.id = 'modal-confirm';
     newConfirm.onclick = () => cleanup(showInput ? inputEl.value.trim() : true);
 
     const newCancel = cancelBtn.cloneNode(true);
     cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+    newCancel.id = 'modal-cancel';
     newCancel.onclick = () => cleanup(showInput ? null : false);
+
+    // Keyboard shortcuts: Enter = confirm, Esc = cancel
+    modalKeyHandler = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('modal-confirm').click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        document.getElementById('modal-cancel').click();
+      }
+    };
+    document.addEventListener('keydown', modalKeyHandler);
   });
 }
 
@@ -308,13 +345,11 @@ function showContextMenu(e, type, id, name) {
   e.preventDefault(); e.stopPropagation();
   let buttons = '';
   if (type === 'notebook') {
-    buttons = `<button data-action="rename">✏️ Ubah Nama</button><button data-action="delete" class="danger">🗑️ Hapus Notebook</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
   } else if (type === 'section') {
-    buttons = `
-      <button data-action="rename">✏️ Ubah Nama</button>
-      <button data-action="delete" class="danger">🗑️ Hapus Bagian</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
   } else if (type === 'note') {
-    buttons = `<button data-action="rename">✏️ Ubah Judul</button><button data-action="delete" class="danger">🗑️ Hapus Catatan</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
   }
 
   ctxMenu.innerHTML = buttons;
@@ -326,10 +361,10 @@ function showContextMenu(e, type, id, name) {
       ctxMenu.classList.add('hidden');
       const action = btn.dataset.action;
       if (action === 'rename') {
-        const newName = await showCustomModal({ title: "Ubah Nama", message: `Nama baru untuk "${name}":`, showInput: true, inputValue: name, confirmText: "Simpan", confirmClass: "btn-lime" });
+        const newName = await showCustomModal({ title: "Rename", message: `New name for "${name}":`, showInput: true, inputValue: name, confirmText: "Save", confirmClass: "btn-lime" });
         if (newName) handleRename(type, id, newName);
       } else if (action === 'delete') {
-        const ok = await showCustomModal({ title: "Hapus Item", message: `Hapus "${name}"? Tindakan ini tidak bisa dibatalkan.`, confirmText: "Ya, Hapus", confirmClass: "btn-red" });
+        const ok = await showCustomModal({ title: "Delete Item", message: `Delete "${name}"? This cannot be undone.`, confirmText: "Delete", confirmClass: "btn-red" });
         if (ok) handleDelete(type, id);
       }
     };
@@ -355,7 +390,11 @@ function handleDelete(type, id) {
   } else if (type === 'section') {
     state.notes = state.notes.filter(n => n.sectionId !== id);
     state.sections = state.sections.filter(s => s.id !== id);
-    if (currentSectionId === id) { currentSectionId = null; toggleEditorEmpty(true); }
+    if (currentSectionId === id) { 
+      const remaining = allSectionsOf(currentNotebookId);
+      currentSectionId = remaining[0]?.id || null;
+      if (!currentSectionId) toggleEditorEmpty(true);
+    }
   } else if (type === 'note') {
     state.notes = state.notes.filter(n => n.id !== id);
     if (currentNoteId === id) { currentNoteId = null; toggleEditorEmpty(true); }
@@ -364,23 +403,54 @@ function handleDelete(type, id) {
 }
 
 /* ======================================================================
-RESIZE HANDLE
+SIDEBAR COLLAPSE
+====================================================================== */
+function applySidebarState() {
+  const app = document.getElementById('app');
+  const toggleBtn = document.getElementById('sidebar-collapsed-toggle');
+  const collapseBtn = document.getElementById('btn-collapse-sidebar');
+  if (sidebarCollapsed) {
+    app.classList.add('sidebar-collapsed');
+    toggleBtn.classList.remove('hidden');
+    collapseBtn.textContent = '▶';
+  } else {
+    app.classList.remove('sidebar-collapsed');
+    toggleBtn.classList.add('hidden');
+    collapseBtn.textContent = '◀';
+  }
+}
+
+document.getElementById('btn-collapse-sidebar').addEventListener('click', () => {
+  sidebarCollapsed = !sidebarCollapsed;
+  localStorage.setItem('catatan_sidebar_collapsed', sidebarCollapsed);
+  applySidebarState();
+});
+
+document.getElementById('sidebar-collapsed-toggle').addEventListener('click', () => {
+  sidebarCollapsed = false;
+  localStorage.setItem('catatan_sidebar_collapsed', 'false');
+  applySidebarState();
+});
+
+/* ======================================================================
+RESIZE HANDLE (antara kolom 2 dan 3)
 ====================================================================== */
 function initResizeHandle() {
   const handle = document.getElementById('resize-handle');
-  const app = document.getElementById('app');
   
   handle.addEventListener('mousedown', (e) => {
     isResizing = true;
     document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
     e.preventDefault();
   });
   
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
-    const newWidth = e.clientX;
-    if (newWidth > 150 && newWidth < 500) {
-      document.documentElement.style.setProperty('--pages-width', newWidth + 'px');
+    const sidebarWidth = sidebarCollapsed ? 0 : parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')) || 240;
+    const newPagesWidth = e.clientX - sidebarWidth - 4; // 4px untuk handle
+    if (newPagesWidth > 200 && newPagesWidth < 600) {
+      document.documentElement.style.setProperty('--pages-width', newPagesWidth + 'px');
     }
   });
   
@@ -388,6 +458,7 @@ function initResizeHandle() {
     if (isResizing) {
       isResizing = false;
       document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     }
   });
 }
@@ -416,9 +487,9 @@ function onEditorInput(value) {
   markSavingLabel(); scheduleSave();
 }
 function markSavingLabel() {
-  document.getElementById("edit-savestate").textContent = "Menyimpan...";
+  document.getElementById("edit-savestate").textContent = "Saving...";
   clearTimeout(editorSaveLabelTimer);
-  editorSaveLabelTimer = setTimeout(() => { document.getElementById("edit-savestate").textContent = "Tersimpan"; }, 1400);
+  editorSaveLabelTimer = setTimeout(() => { document.getElementById("edit-savestate").textContent = "Saved"; }, 1400);
 }
 
 /* ======================================================================
@@ -435,7 +506,7 @@ function renderNotebooks() {
 
     const li = document.createElement("li");
     li.className = "notebook-item" + (currentNotebookId === nb.id && mode === "normal" ? " active" : "");
-    li.innerHTML = `<span style="display:flex;align-items:center;gap:8px;"><span class="nb-dot" style="background:${NB_COLORS[nb.color % NB_COLORS.length]}"></span>${escapeHtml(nb.name)}</span><span class="nb-count">${count}</span>`;
+    li.innerHTML = `<span class="nb-dot" style="background:${NB_COLORS[nb.color % NB_COLORS.length]}"></span><span class="nb-name">${escapeHtml(nb.name)}</span><span class="nb-count">${count}</span>`;
     li.addEventListener("click", () => selectNotebook(nb.id));
     li.addEventListener("contextmenu", (e) => showContextMenu(e, 'notebook', nb.id, nb.name));
     list.appendChild(li);
@@ -443,10 +514,10 @@ function renderNotebooks() {
 }
 
 document.getElementById("btn-new-notebook").addEventListener("click", async () => {
-  const name = await showCustomModal({ title: "Notebook Baru", message: "Berikan nama untuk notebook baru:", showInput: true, confirmText: "Buat", confirmClass: "btn-lime" });
+  const name = await showCustomModal({ title: "New Notebook", message: "Give your notebook a name:", showInput: true, confirmText: "Create", confirmClass: "btn-lime" });
   if (!name) return;
   const nb = { id: uid(), name: name, color: state.notebooks.length };
-  const sec = { id: uid(), notebookId: nb.id, parentSectionId: null, name: "Umum", color: 0, order: 0 };
+  const sec = { id: uid(), notebookId: nb.id, parentSectionId: null, name: "General", color: 0, order: 0 };
   state.notebooks.push(nb); state.sections.push(sec);
   scheduleSave(); selectNotebook(nb.id);
 });
@@ -471,26 +542,38 @@ RENDER — KOLOM 2: SECTIONS + PAGES (GROUPED)
 ====================================================================== */
 function selectNotebook(id) {
   currentNotebookId = id; mode = "normal";
-  if (allSectionsOf(id).length === 0) {
-    const s = { id: uid(), notebookId: id, parentSectionId: null, name: "Umum", color: 0, order: 0 };
-    state.sections.push(s); scheduleSave();
+  const sections = allSectionsOf(id);
+  if (sections.length === 0) {
+    const s = { id: uid(), notebookId: id, parentSectionId: null, name: "General", color: 0, order: 0 };
+    state.sections.push(s);
+    scheduleSave();
+    currentSectionId = s.id;
+  } else {
+    currentSectionId = sections[0].id;
   }
-  currentSectionId = allSectionsOf(id)[0].id;
   renderAll(); setMobileScreen("pages");
 }
 
 document.getElementById("btn-new-section").addEventListener("click", async () => {
   if (!currentNotebookId) return;
-  const name = await showCustomModal({ title: "Bagian Baru", message: "Nama bagian baru:", showInput: true, confirmText: "Buat", confirmClass: "btn-lime" });
+  const name = await showCustomModal({ title: "New Section", message: "Section name:", showInput: true, confirmText: "Create", confirmClass: "btn-lime" });
   if (!name) return;
   const s = { id: uid(), notebookId: currentNotebookId, parentSectionId: null, name: name, color: 0, order: Date.now() };
-  state.sections.push(s); currentSectionId = s.id;
-  scheduleSave(); renderAll();
+  state.sections.push(s);
+  currentSectionId = s.id;
+  scheduleSave();
+  renderAll(); // FIX: renderAll dipanggil untuk memastikan section baru muncul
 });
 
 document.getElementById("btn-new-page").addEventListener("click", () => {
   if (mode !== "normal" || !currentNotebookId) return;
-  const targetSectionId = currentSectionId || allSectionsOf(currentNotebookId)[0].id;
+  const sections = allSectionsOf(currentNotebookId);
+  if (sections.length === 0) {
+    const s = { id: uid(), notebookId: currentNotebookId, parentSectionId: null, name: "General", color: 0, order: 0 };
+    state.sections.push(s);
+    currentSectionId = s.id;
+  }
+  const targetSectionId = currentSectionId || sections[0].id;
   const n = {
     id: uid(), sectionId: targetSectionId, title: "", content: "",
     categories: [], isTask: false, done: false, due: null, order: Date.now(),
@@ -507,7 +590,7 @@ function renderPageList() {
 
   if (mode === "search") {
     const rows = state.notes.filter(n => matchesSearch(n, searchQuery));
-    title = `Hasil pencarian "${searchQuery}"`;
+    title = `Search: "${searchQuery}"`;
     document.getElementById("notebook-title").textContent = title;
     document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
     
@@ -525,8 +608,10 @@ function renderPageList() {
     
     sections.forEach(sec => {
       const notes = allNotesOf(sec.id);
-      if (notes.length === 0) return;
-      hasAnyNotes = true;
+      if (notes.length === 0 && mode === "normal") {
+        // Tetap tampilkan section meskipun kosong
+      }
+      if (notes.length > 0) hasAnyNotes = true;
       
       const group = document.createElement("div");
       group.className = "section-group";
@@ -534,7 +619,7 @@ function renderPageList() {
       const isCollapsed = collapsedSections.has(sec.id);
       const header = document.createElement("div");
       header.className = "section-header" + (isCollapsed ? " collapsed" : "");
-      header.innerHTML = `<span class="toggle">▼</span><span>${escapeHtml(sec.name)}</span><span style="margin-left:auto;font-size:10px;opacity:.7;">${notes.length}</span>`;
+      header.innerHTML = `<span class="toggle">▼</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
       header.addEventListener("click", () => {
         if (collapsedSections.has(sec.id)) collapsedSections.delete(sec.id);
         else collapsedSections.add(sec.id);
@@ -567,8 +652,6 @@ function renderPageList() {
             const note = noteById(noteId);
             if (note) {
               note.sectionId = newSectionId;
-              note.order = evt.newIndex;
-              // Reorder other notes in the section
               const items = evt.to.querySelectorAll('.page-item');
               items.forEach((el, idx) => {
                 const n = noteById(el.dataset.id);
@@ -582,7 +665,7 @@ function renderPageList() {
       }
     });
     
-    document.getElementById("pages-empty").classList.toggle("hidden", hasAnyNotes);
+    document.getElementById("pages-empty").classList.toggle("hidden", hasAnyNotes || sections.length > 0);
   }
 }
 
@@ -594,7 +677,7 @@ function createPageItem(n, crumb) {
   const overdue = n.isTask && !n.done && n.due && n.due < today;
   const checkHtml = n.isTask ? `<span class="mini-check ${n.done ? "done" : ""}" data-id="${n.id}">${n.done ? "✓" : ""}</span>` : "";
   div.innerHTML = `${crumb ? `<div class="page-item-crumb">${escapeHtml(crumb)}</div>` : ""}
-    <p class="page-item-title">${checkHtml}${escapeHtml(n.title || "Tanpa judul")}</p>
+    <p class="page-item-title">${checkHtml}<span>${escapeHtml(n.title || "Untitled")}</span></p>
     <div class="page-item-snip">${escapeHtml(plainSnippet(n.content))}</div>
     <div class="page-item-foot"><span>${fmtDate(n.updatedAt)}</span>${n.isTask && n.due ? `<span class="page-item-due ${overdue ? "overdue" : ""}">${fmtDate(n.due)}</span>` : ""}</div>`;
   
@@ -602,7 +685,7 @@ function createPageItem(n, crumb) {
     if (e.target.classList.contains("mini-check")) return;
     openNote(n.id);
   });
-  div.addEventListener("contextmenu", (e) => showContextMenu(e, 'note', n.id, n.title || "Tanpa judul"));
+  div.addEventListener("contextmenu", (e) => showContextMenu(e, 'note', n.id, n.title || "Untitled"));
   
   const chk = div.querySelector(".mini-check");
   if (chk) chk.addEventListener("click", (e) => {
@@ -670,7 +753,7 @@ document.getElementById("tb-task").addEventListener("click", () => {
 
 document.getElementById("btn-delete-note").addEventListener("click", async () => {
   if (!currentNoteId) return;
-  const ok = await showCustomModal({ title: "Hapus Catatan?", message: "Catatan yang dihapus tidak bisa dikembalikan. Yakin ingin melanjutkan?", confirmText: "Ya, Hapus", confirmClass: "btn-red" });
+  const ok = await showCustomModal({ title: "Delete Note?", message: "Deleted notes cannot be recovered. Continue?", confirmText: "Delete", confirmClass: "btn-red" });
   if (!ok) return;
   handleDelete('note', currentNoteId);
 });
