@@ -1,9 +1,11 @@
-// --- TARUH DI BARIS PALING ATAS FILE JS-MU ---
+// 1. IMPORT FIREBASE (Versi CDN untuk HTML statis)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getAuth, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// Your web app's Firebase configuration
+/* ======================================================================
+KONFIGURASI FIREBASE
+====================================================================== */
 const firebaseConfig = {
   apiKey: "AIzaSyCdV2tf0z_fC2ZrIDyc2Le9B6AAJOsnYss",
   authDomain: "notetakingku.firebaseapp.com",
@@ -13,23 +15,23 @@ const firebaseConfig = {
   appId: "1:631047532487:web:73995848f93e0efb2633e2"
 };
 
+// 2. INISIALISASI MESIN FIREBASE
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-// ---------------------------------------------
 
-// DI BAWAH INI ADALAH KODE LAMA-MU YANG SUDAH ADA
-const buttonSimpan = document.getElementById("btn-simpan");
-const inputCatatan = document.getElementById("input-catatan");
+// 3. SIAPKAN PROVIDER UNTUK LOGIN GOOGLE
+const provider = new GoogleAuthProvider();
+
 
 /* ======================================================================
-KONFIGURASI
+ELEMEN UI & VARIABEL APLIKASI
 ====================================================================== */
-const CLIENT_ID = "670272085628-e5s4aubec9fia1k31ppqm4k5c0tf64od.apps.googleusercontent.com";
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
-const DATA_FILENAME = "catatan-app-data.json";
-const CACHE_KEY = "catatan_cache_v7";
+const buttonSimpan = document.getElementById("btn-simpan");
+const inputCatatan = document.getElementById("input-catatan");
 const COLORS = ["#FFD93D", "#FF5D8F", "#4CC9F0", "#B9E351", "#B98CE0", "#FF8B3D", "#6FE7C0"];
+
+// ... (kode fungsi aplikasimu selanjutnya ditaruh di bawah sini) ...
 
 /* ======================================================================
 STATE
