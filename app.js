@@ -373,11 +373,11 @@ function showContextMenu(e, type, id, name, extra = {}) {
   e.stopPropagation();
   let buttons = '';
   if (type === 'notebook') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="delete" class="danger">️ Delete Notebook</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
   } else if (type === 'section') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color"> Change Color</button><button data-action="new-sub">📂 Add Subsection</button><button data-action="new-page">📄 Add Note Here</button><div class="divider"></div><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="new-sub">📂 Add Subsection</button><button data-action="new-page">📄 Add Note Here</button><div class="divider"></div><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
   } else if (type === 'note') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">️ Delete Note</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
   }
   ctxMenu.innerHTML = buttons;
   ctxMenu.style.left = `${e.clientX}px`;
@@ -644,7 +644,6 @@ function renderNotebooks() {
     list.appendChild(li);
   });
   
-  // Render tag cloud
   const tagCloud = document.getElementById("tag-cloud");
   tagCloud.innerHTML = "";
   const tags = getAllTags();
@@ -884,7 +883,6 @@ function renderSectionGroup(sec, depth) {
   group.appendChild(header);
   group.appendChild(pagesContainer);
   
-  // Render children recursively
   children.forEach(child => {
     const childGroup = renderSectionGroup(child, depth + 1);
     if (childGroup) {
@@ -895,7 +893,6 @@ function renderSectionGroup(sec, depth) {
     }
   });
   
-  // Init SortableJS for pages
   if (window.Sortable && !isCollapsed) {
     Sortable.create(pagesContainer, {
       group: 'pages',
