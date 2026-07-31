@@ -1,3 +1,27 @@
+// --- TARUH DI BARIS PALING ATAS FILE JS-MU ---
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAuth, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyCdV2tf0z_fC2ZrIDyc2Le9B6AAJOsnYss",
+  authDomain: "notetakingku.firebaseapp.com",
+  projectId: "notetakingku",
+  storageBucket: "notetakingku.firebasestorage.app",
+  messagingSenderId: "631047532487",
+  appId: "1:631047532487:web:73995848f93e0efb2633e2"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+// ---------------------------------------------
+
+// DI BAWAH INI ADALAH KODE LAMA-MU YANG SUDAH ADA
+const buttonSimpan = document.getElementById("btn-simpan");
+const inputCatatan = document.getElementById("input-catatan");
+
 /* ======================================================================
 KONFIGURASI
 ====================================================================== */
