@@ -4,8 +4,9 @@ KONFIGURASI
 const CLIENT_ID = "670272085628-e5s4aubec9fia1k31ppqm4k5c0tf64od.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
 const DATA_FILENAME = "catatan-app-data.json";
-const CACHE_KEY = "catatan_cache_v6";
+const CACHE_KEY = "catatan_cache_v7";
 const NB_COLORS = ["#FFD93D", "#FF5D8F", "#4CC9F0", "#B9E351", "#B98CE0", "#FF8B3D", "#6FE7C0"];
+const SEC_COLORS = ["#4CC9F0", "#B9E351", "#FF5D8F", "#B98CE0", "#FF8B3D", "#6FE7C0", "#FFD93D"];
 
 /* ======================================================================
 STATE
@@ -19,6 +20,7 @@ let currentSectionId = null;
 let currentNoteId = null;
 let mode = "normal";
 let searchQuery = "";
+let activeTag = null;
 let saveTimer = null;
 let pageListDebounce = null;
 let editorSaveLabelTimer = null;
@@ -44,38 +46,13 @@ function migrate(data) {
     data.sections = (data.sections || []).map((s, i) => ({
       ...s,
       parentSectionId: s.parentSectionId || null,
-      order: s.order !== undefined ? s.order : i
+      order: s.order !== undefined ? s.order : i,
+      color: s.color !== undefined ? s.color : 0
     }));
     data.notes = data.notes || [];
     return data;
   }
-  if (data && Array.isArray(data.projects)) {
-    const nbId = uid();
-    const notebooks = [{ id: nbId, name: "My Notes", color: 0 }];
-    const sections = data.projects.map((p, i) => ({ 
-      id: p.id, notebookId: nbId, parentSectionId: null, name: p.name, color: i, order: i 
-    }));
-    const fallbackSectionId = sections[0] ? sections[0].id : null;
-    const notes = (data.notes || []).map((n, idx) => ({
-      id: n.id, sectionId: n.projectId || fallbackSectionId, title: n.title || "", 
-      content: htmlToMdBestEffort(n.content || ""), categories: n.categories || [], 
-      isTask: !!n.isTask, done: !!n.done, due: n.due || null, order: idx,
-      createdAt: n.createdAt || new Date().toISOString(), updatedAt: n.updatedAt || new Date().toISOString()
-    }));
-    return { notebooks, sections, notes };
-  }
   return defaultState();
-}
-
-function stripTags(s) { const d = document.createElement("div"); d.innerHTML = s; return d.textContent || ""; }
-function htmlToMdBestEffort(html) {
-  if (!html) return ""; let s = html;
-  s = s.replace(/<h3[^>]*>(.*?)<\/h3>/gi, (m, inner) => "### " + stripTags(inner) + "\n");
-  s = s.replace(/<(b|strong)[^>]*>(.*?)<\/\1>/gi, (m, tag, inner) => "**" + stripTags(inner) + "**");
-  s = s.replace(/<li[^>]*>(.*?)<\/li>/gi, (m, inner) => "- " + stripTags(inner) + "\n");
-  s = s.replace(/<\/(ul|ol)>/gi, "\n").replace(/<(ul|ol)[^>]*>/gi, "");
-  s = s.replace(/<br\s*\/?>/gi, "\n"); s = s.replace(/<div[^>]*>/gi, "\n").replace(/<\/div>/gi, "");
-  s = stripTags(s); return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /* ======================================================================
@@ -104,7 +81,6 @@ function initGis() {
     tokenClient.requestAccessToken({ prompt: "consent" });
   });
   
-  // AUTO-LOGIN: kalau sudah ada token, langsung masuk app tanpa prompt
   if (accessToken) {
     setGateStatus("Signing in automatically...");
     enterApp().catch(err => {
@@ -158,12 +134,10 @@ async function enterApp() {
   document.getElementById("app").classList.remove("hidden");
   fetchUserEmail();
   setSyncStatus("syncing...", "saving");
-  let migratedFromOld = false;
   try {
     await driveEnsureFile();
     const remote = await driveLoadData();
     if (remote) {
-      migratedFromOld = Array.isArray(remote.projects) && !Array.isArray(remote.notebooks);
       state = migrate(remote);
       saveCache();
     } else { state = migrate(state); }
@@ -177,7 +151,6 @@ async function enterApp() {
   toggleEditorEmpty(true);
   if (currentNotebookId) selectNotebook(currentNotebookId);
   setMobileScreen("notebooks");
-  if (migratedFromOld) scheduleSave();
   initResizeHandle();
 }
 
@@ -250,16 +223,22 @@ function scheduleSave() {
 }
 
 /* ======================================================================
-HELPERS & CUSTOM MODAL / CONTEXT MENU
+HELPERS
 ====================================================================== */
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
 function noteById(id) { return state.notes.find(n => n.id === id); }
 function sectionById(id) { return state.sections.find(s => s.id === id); }
 function notebookById(id) { return state.notebooks.find(n => n.id === id); }
-function allSectionsOf(nbId) { 
+function rootSectionsOf(nbId) { 
   return state.sections
     .filter(s => s.notebookId === nbId && !s.parentSectionId)
-    .sort((a,b) => a.name.localeCompare(b.name)); 
+    .sort((a,b) => (a.order||0) - (b.order||0)); 
+}
+function childSectionsOf(parentId) {
+  return state.sections.filter(s => s.parentSectionId === parentId).sort((a,b) => (a.order||0) - (b.order||0));
+}
+function allSectionsOf(nbId) { 
+  return state.sections.filter(s => s.notebookId === nbId).sort((a,b) => (a.order||0) - (b.order||0)); 
 }
 function allNotesOf(secId) { return state.notes.filter(n => n.sectionId === secId).sort((a,b) => (a.order||0) - (b.order||0)); }
 function crumbFor(n) {
@@ -283,15 +262,24 @@ function fmtDate(iso) { if (!iso) return ""; return new Date(iso).toLocaleDateSt
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
+function getAllTags() {
+  const tags = new Set();
+  state.notes.forEach(n => {
+    (n.categories || []).forEach(t => tags.add(t.trim().toLowerCase()));
+  });
+  return Array.from(tags).sort();
+}
 
-// --- CUSTOM MODAL (dengan Enter/Esc support) ---
+// --- CUSTOM MODAL (dengan Enter/Esc + Color Picker support) ---
 let modalKeyHandler = null;
-function showCustomModal({ title, message, showInput = false, inputValue = '', confirmText = 'OK', confirmClass = 'btn-red' }) {
+let selectedColor = null;
+function showCustomModal({ title, message, showInput = false, inputValue = '', confirmText = 'OK', confirmClass = 'btn-red', showColorPicker = false, initialColor = 0 }) {
   return new Promise((resolve) => {
     const modal = document.getElementById('custom-modal');
     const titleEl = document.getElementById('modal-title');
     const msgEl = document.getElementById('modal-message');
     const inputEl = document.getElementById('modal-input');
+    const colorPicker = document.getElementById('modal-color-picker');
     const confirmBtn = document.getElementById('modal-confirm');
     const cancelBtn = document.getElementById('modal-cancel');
 
@@ -304,6 +292,23 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
       setTimeout(() => inputEl.select(), 50);
     } else { inputEl.classList.add('hidden'); }
 
+    if (showColorPicker) {
+      colorPicker.classList.remove('hidden');
+      colorPicker.innerHTML = '';
+      selectedColor = initialColor;
+      SEC_COLORS.forEach((color, idx) => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch' + (idx === initialColor ? ' selected' : '');
+        swatch.style.background = color;
+        swatch.onclick = () => {
+          selectedColor = idx;
+          colorPicker.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+          swatch.classList.add('selected');
+        };
+        colorPicker.appendChild(swatch);
+      });
+    } else { colorPicker.classList.add('hidden'); }
+
     modal.classList.remove('hidden');
     
     const cleanup = (result) => { 
@@ -312,20 +317,23 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
         document.removeEventListener('keydown', modalKeyHandler);
         modalKeyHandler = null;
       }
-      resolve(result); 
+      if (showColorPicker) {
+        resolve({ value: showInput ? inputEl.value.trim() : true, color: selectedColor });
+      } else {
+        resolve(showInput ? inputEl.value.trim() : true);
+      }
     };
 
     const newConfirm = confirmBtn.cloneNode(true);
     confirmBtn.parentNode.replaceChild(newConfirm, confirmBtn);
     newConfirm.id = 'modal-confirm';
-    newConfirm.onclick = () => cleanup(showInput ? inputEl.value.trim() : true);
+    newConfirm.onclick = () => cleanup(true);
 
     const newCancel = cancelBtn.cloneNode(true);
     cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
     newCancel.id = 'modal-cancel';
-    newCancel.onclick = () => cleanup(showInput ? null : false);
+    newCancel.onclick = () => cleanup(false);
 
-    // Keyboard shortcuts: Enter = confirm, Esc = cancel
     modalKeyHandler = (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -341,13 +349,22 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
 
 // --- CONTEXT MENU ---
 const ctxMenu = document.getElementById('context-menu');
-function showContextMenu(e, type, id, name) {
+function showContextMenu(e, type, id, name, extra = {}) {
   e.preventDefault(); e.stopPropagation();
   let buttons = '';
   if (type === 'notebook') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
+    buttons = `
+      <button data-action="rename">✏️ Rename</button>
+      <button data-action="color">🎨 Change Color</button>
+      <button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
   } else if (type === 'section') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
+    buttons = `
+      <button data-action="rename">✏️ Rename</button>
+      <button data-action="color">🎨 Change Color</button>
+      <button data-action="new-sub">📂 Add Subsection</button>
+      <button data-action="new-page">📄 Add Note Here</button>
+      <div class="divider"></div>
+      <button data-action="delete" class="danger">🗑️ Delete Section</button>`;
   } else if (type === 'note') {
     buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
   }
@@ -361,11 +378,19 @@ function showContextMenu(e, type, id, name) {
       ctxMenu.classList.add('hidden');
       const action = btn.dataset.action;
       if (action === 'rename') {
-        const newName = await showCustomModal({ title: "Rename", message: `New name for "${name}":`, showInput: true, inputValue: name, confirmText: "Save", confirmClass: "btn-lime" });
-        if (newName) handleRename(type, id, newName);
+        const result = await showCustomModal({ title: "Rename", message: `New name for "${name}":`, showInput: true, inputValue: name, confirmText: "Save", confirmClass: "btn-lime" });
+        if (result) handleRename(type, id, result);
+      } else if (action === 'color') {
+        const result = await showCustomModal({ title: "Change Color", message: `Choose a color for "${name}":`, showColorPicker: true, initialColor: extra.color || 0, confirmText: "Save", confirmClass: "btn-lime" });
+        if (result) handleColorChange(type, id, result.color);
       } else if (action === 'delete') {
         const ok = await showCustomModal({ title: "Delete Item", message: `Delete "${name}"? This cannot be undone.`, confirmText: "Delete", confirmClass: "btn-red" });
         if (ok) handleDelete(type, id);
+      } else if (action === 'new-sub') {
+        const result = await showCustomModal({ title: "New Subsection", message: `Subsection name under "${name}":`, showInput: true, confirmText: "Create", confirmClass: "btn-lime" });
+        if (result) handleNewSubSection(id, result);
+      } else if (action === 'new-page') {
+        handleNewPageInSection(id);
       }
     };
   });
@@ -380,6 +405,12 @@ function handleRename(type, id, newName) {
   scheduleSave(); renderAll();
 }
 
+function handleColorChange(type, id, colorIdx) {
+  if (type === 'notebook') { const nb = notebookById(id); if(nb) nb.color = colorIdx; }
+  else if (type === 'section') { const sec = sectionById(id); if(sec) sec.color = colorIdx; }
+  scheduleSave(); renderAll();
+}
+
 function handleDelete(type, id) {
   if (type === 'notebook') {
     const secIds = allSectionsOf(id).map(s => s.id);
@@ -388,10 +419,16 @@ function handleDelete(type, id) {
     state.notebooks = state.notebooks.filter(n => n.id !== id);
     if (currentNotebookId === id) { currentNotebookId = state.notebooks[0]?.id || null; toggleEditorEmpty(true); }
   } else if (type === 'section') {
-    state.notes = state.notes.filter(n => n.sectionId !== id);
-    state.sections = state.sections.filter(s => s.id !== id);
-    if (currentSectionId === id) { 
-      const remaining = allSectionsOf(currentNotebookId);
+    const idsToRemove = new Set();
+    function collectIds(parentId) {
+      idsToRemove.add(parentId);
+      state.sections.filter(s => s.parentSectionId === parentId).forEach(s => collectIds(s.id));
+    }
+    collectIds(id);
+    state.notes = state.notes.filter(n => !idsToRemove.has(n.sectionId));
+    state.sections = state.sections.filter(s => !idsToRemove.has(s.id));
+    if (idsToRemove.has(currentSectionId)) { 
+      const remaining = rootSectionsOf(currentNotebookId);
       currentSectionId = remaining[0]?.id || null;
       if (!currentSectionId) toggleEditorEmpty(true);
     }
@@ -402,20 +439,46 @@ function handleDelete(type, id) {
   scheduleSave(); renderAll();
 }
 
+function handleNewSubSection(parentId, name) {
+  const parentSec = sectionById(parentId);
+  if (!parentSec) return;
+  const siblings = childSectionsOf(parentId);
+  const s = { 
+    id: uid(), 
+    notebookId: parentSec.notebookId, 
+    parentSectionId: parentId, 
+    name: name, 
+    color: parentSec.color, 
+    order: siblings.length 
+  };
+  state.sections.push(s);
+  collapsedSections.delete(parentId);
+  scheduleSave(); renderAll();
+}
+
+function handleNewPageInSection(secId) {
+  const n = {
+    id: uid(), sectionId: secId, title: "", content: "",
+    categories: [], isTask: false, done: false, due: null, order: Date.now(),
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+  };
+  state.notes.unshift(n);
+  scheduleSave();
+  renderPageList();
+  openNote(n.id);
+}
+
 /* ======================================================================
 SIDEBAR COLLAPSE
 ====================================================================== */
 function applySidebarState() {
   const app = document.getElementById('app');
-  const toggleBtn = document.getElementById('sidebar-collapsed-toggle');
   const collapseBtn = document.getElementById('btn-collapse-sidebar');
   if (sidebarCollapsed) {
     app.classList.add('sidebar-collapsed');
-    toggleBtn.classList.remove('hidden');
     collapseBtn.textContent = '▶';
   } else {
     app.classList.remove('sidebar-collapsed');
-    toggleBtn.classList.add('hidden');
     collapseBtn.textContent = '◀';
   }
 }
@@ -426,14 +489,8 @@ document.getElementById('btn-collapse-sidebar').addEventListener('click', () => 
   applySidebarState();
 });
 
-document.getElementById('sidebar-collapsed-toggle').addEventListener('click', () => {
-  sidebarCollapsed = false;
-  localStorage.setItem('catatan_sidebar_collapsed', 'false');
-  applySidebarState();
-});
-
 /* ======================================================================
-RESIZE HANDLE (antara kolom 2 dan 3)
+RESIZE HANDLE
 ====================================================================== */
 function initResizeHandle() {
   const handle = document.getElementById('resize-handle');
@@ -447,8 +504,8 @@ function initResizeHandle() {
   
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
-    const sidebarWidth = sidebarCollapsed ? 0 : parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')) || 240;
-    const newPagesWidth = e.clientX - sidebarWidth - 4; // 4px untuk handle
+    const sidebarWidth = sidebarCollapsed ? 50 : 240;
+    const newPagesWidth = e.clientX - sidebarWidth - 4;
     if (newPagesWidth > 200 && newPagesWidth < 600) {
       document.documentElement.style.setProperty('--pages-width', newPagesWidth + 'px');
     }
@@ -470,7 +527,55 @@ function initVditor() {
   if (vditorInstance) return;
   vditorInstance = new Vditor("vditor-container", {
     mode: "ir", height: "100%", cache: { enable: false },
-    toolbar: ["headings", "bold", "italic", "strike", "|", "list", "ordered-list", "check", "quote", "|", "undo", "redo"],
+    toolbar: [
+      { name: "headings", tipPosition: "s" },
+      { name: "bold", tipPosition: "s" },
+      { name: "italic", tipPosition: "s" },
+      { name: "strike", tipPosition: "s" },
+      "|",
+      { name: "list", tipPosition: "s" },
+      { name: "ordered-list", tipPosition: "s" },
+      { name: "check", tipPosition: "s" },
+      { name: "quote", tipPosition: "s" },
+      "|",
+      { name: "link", tipPosition: "s" },
+      { name: "upload", tipPosition: "s" },
+      "|",
+      { name: "undo", tipPosition: "s" },
+      { name: "redo", tipPosition: "s" }
+    ],
+    upload: {
+      url: '',
+      accept: 'image/*',
+      max: 10 * 1024 * 1024,
+      handler(files) {
+        // Convert to base64
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const base64 = e.target.result;
+          vditorInstance.insertValue(`![${file.name}](${base64})`);
+        };
+        reader.readAsDataURL(file);
+        return ' ';
+      }
+    },
+    paste: (event) => {
+      const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+      for (let item of items) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          event.preventDefault();
+          const file = item.getAsFile();
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const base64 = e.target.result;
+            vditorInstance.insertValue(`![pasted-image](${base64})`);
+          };
+          reader.readAsDataURL(file);
+          return false;
+        }
+      }
+    },
     after: () => { vditorReady = true; if (pendingNote) { loadNoteIntoEditor(pendingNote); pendingNote = null; } },
     input: (value) => { onEditorInput(value); }
   });
@@ -493,7 +598,7 @@ function markSavingLabel() {
 }
 
 /* ======================================================================
-RENDER — KOLOM 1: NOTEBOOK
+RENDER — KOLOM 1: NOTEBOOK + TAGS
 ====================================================================== */
 function renderNotebooks() {
   const list = document.getElementById("notebook-list");
@@ -508,15 +613,47 @@ function renderNotebooks() {
     li.className = "notebook-item" + (currentNotebookId === nb.id && mode === "normal" ? " active" : "");
     li.innerHTML = `<span class="nb-dot" style="background:${NB_COLORS[nb.color % NB_COLORS.length]}"></span><span class="nb-name">${escapeHtml(nb.name)}</span><span class="nb-count">${count}</span>`;
     li.addEventListener("click", () => selectNotebook(nb.id));
-    li.addEventListener("contextmenu", (e) => showContextMenu(e, 'notebook', nb.id, nb.name));
+    li.addEventListener("contextmenu", (e) => showContextMenu(e, 'notebook', nb.id, nb.name, { color: nb.color }));
     list.appendChild(li);
   });
+
+  // Render tag cloud
+  const tagCloud = document.getElementById("tag-cloud");
+  tagCloud.innerHTML = "";
+  const tags = getAllTags();
+  if (tags.length === 0) {
+    tagCloud.innerHTML = '<div style="font-size:10px;color:var(--muted);">No tags yet</div>';
+  } else {
+    tags.forEach(tag => {
+      const chip = document.createElement('div');
+      chip.className = 'tag-chip' + (activeTag === tag ? ' active' : '');
+      chip.textContent = tag;
+      chip.onclick = () => {
+        if (activeTag === tag) {
+          activeTag = null;
+          mode = "normal";
+        } else {
+          activeTag = tag;
+          mode = "tag";
+        }
+        renderAll();
+      };
+      tagCloud.appendChild(chip);
+    });
+  }
 }
 
 document.getElementById("btn-new-notebook").addEventListener("click", async () => {
-  const name = await showCustomModal({ title: "New Notebook", message: "Give your notebook a name:", showInput: true, confirmText: "Create", confirmClass: "btn-lime" });
-  if (!name) return;
-  const nb = { id: uid(), name: name, color: state.notebooks.length };
+  const result = await showCustomModal({ 
+    title: "New Notebook", 
+    message: "Give your notebook a name:", 
+    showInput: true, 
+    showColorPicker: true,
+    confirmText: "Create", 
+    confirmClass: "btn-lime" 
+  });
+  if (!result.value) return;
+  const nb = { id: uid(), name: result.value, color: result.color };
   const sec = { id: uid(), notebookId: nb.id, parentSectionId: null, name: "General", color: 0, order: 0 };
   state.notebooks.push(nb); state.sections.push(sec);
   scheduleSave(); selectNotebook(nb.id);
@@ -525,6 +662,7 @@ document.getElementById("btn-new-notebook").addEventListener("click", async () =
 document.getElementById("search-input").addEventListener("input", (e) => {
   searchQuery = e.target.value.trim().toLowerCase();
   mode = searchQuery ? "search" : "normal";
+  activeTag = null;
   document.getElementById("search-clear").classList.toggle("hidden", !searchQuery);
   renderAll(); if (mode === "search") setMobileScreen("pages");
 });
@@ -538,11 +676,11 @@ document.getElementById("search-clear").addEventListener("click", () => {
 });
 
 /* ======================================================================
-RENDER — KOLOM 2: SECTIONS + PAGES (GROUPED)
+RENDER — KOLOM 2: SECTIONS + PAGES (WITH SUBSECTIONS)
 ====================================================================== */
 function selectNotebook(id) {
-  currentNotebookId = id; mode = "normal";
-  const sections = allSectionsOf(id);
+  currentNotebookId = id; mode = "normal"; activeTag = null;
+  const sections = rootSectionsOf(id);
   if (sections.length === 0) {
     const s = { id: uid(), notebookId: id, parentSectionId: null, name: "General", color: 0, order: 0 };
     state.sections.push(s);
@@ -554,20 +692,55 @@ function selectNotebook(id) {
   renderAll(); setMobileScreen("pages");
 }
 
+// Click on notebook title to rename
+document.getElementById("notebook-title").addEventListener("click", async () => {
+  if (!currentNotebookId || mode !== "normal") return;
+  const nb = notebookById(currentNotebookId);
+  if (!nb) return;
+  const result = await showCustomModal({ 
+    title: "Rename Notebook", 
+    message: `New name for "${nb.name}":`, 
+    showInput: true, 
+    inputValue: nb.name, 
+    confirmText: "Save", 
+    confirmClass: "btn-lime" 
+  });
+  if (result) {
+    nb.name = result;
+    scheduleSave();
+    renderAll();
+  }
+});
+
 document.getElementById("btn-new-section").addEventListener("click", async () => {
   if (!currentNotebookId) return;
-  const name = await showCustomModal({ title: "New Section", message: "Section name:", showInput: true, confirmText: "Create", confirmClass: "btn-lime" });
-  if (!name) return;
-  const s = { id: uid(), notebookId: currentNotebookId, parentSectionId: null, name: name, color: 0, order: Date.now() };
+  const result = await showCustomModal({ 
+    title: "New Section", 
+    message: "Section name:", 
+    showInput: true, 
+    showColorPicker: true,
+    confirmText: "Create", 
+    confirmClass: "btn-lime" 
+  });
+  if (!result.value) return;
+  const siblings = rootSectionsOf(currentNotebookId);
+  const s = { 
+    id: uid(), 
+    notebookId: currentNotebookId, 
+    parentSectionId: null, 
+    name: result.value, 
+    color: result.color, 
+    order: siblings.length 
+  };
   state.sections.push(s);
   currentSectionId = s.id;
   scheduleSave();
-  renderAll(); // FIX: renderAll dipanggil untuk memastikan section baru muncul
+  renderAll();
 });
 
 document.getElementById("btn-new-page").addEventListener("click", () => {
   if (mode !== "normal" || !currentNotebookId) return;
-  const sections = allSectionsOf(currentNotebookId);
+  const sections = rootSectionsOf(currentNotebookId);
   if (sections.length === 0) {
     const s = { id: uid(), notebookId: currentNotebookId, parentSectionId: null, name: "General", color: 0, order: 0 };
     state.sections.push(s);
@@ -598,8 +771,18 @@ function renderPageList() {
       const div = createPageItem(n, crumbFor(n));
       wrap.appendChild(div);
     });
+  } else if (mode === "tag") {
+    const rows = state.notes.filter(n => (n.categories || []).some(t => t.trim().toLowerCase() === activeTag));
+    title = `Tag: "${activeTag}"`;
+    document.getElementById("notebook-title").textContent = title;
+    document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
+    
+    rows.forEach(n => {
+      const div = createPageItem(n, crumbFor(n));
+      wrap.appendChild(div);
+    });
   } else if (mode === "normal" && currentNotebookId) {
-    const sections = allSectionsOf(currentNotebookId);
+    const sections = rootSectionsOf(currentNotebookId);
     const nb = notebookById(currentNotebookId);
     title = nb ? nb.name : "—";
     document.getElementById("notebook-title").textContent = title;
@@ -607,66 +790,89 @@ function renderPageList() {
     let hasAnyNotes = false;
     
     sections.forEach(sec => {
-      const notes = allNotesOf(sec.id);
-      if (notes.length === 0 && mode === "normal") {
-        // Tetap tampilkan section meskipun kosong
-      }
-      if (notes.length > 0) hasAnyNotes = true;
-      
-      const group = document.createElement("div");
-      group.className = "section-group";
-      
-      const isCollapsed = collapsedSections.has(sec.id);
-      const header = document.createElement("div");
-      header.className = "section-header" + (isCollapsed ? " collapsed" : "");
-      header.innerHTML = `<span class="toggle">▼</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
-      header.addEventListener("click", () => {
-        if (collapsedSections.has(sec.id)) collapsedSections.delete(sec.id);
-        else collapsedSections.add(sec.id);
-        renderPageList();
-      });
-      header.addEventListener("contextmenu", (e) => showContextMenu(e, 'section', sec.id, sec.name));
-      
-      const pagesContainer = document.createElement("div");
-      pagesContainer.className = "section-pages" + (isCollapsed ? " collapsed" : "");
-      pagesContainer.dataset.sectionId = sec.id;
-      
-      notes.forEach(n => {
-        const div = createPageItem(n, null);
-        pagesContainer.appendChild(div);
-      });
-      
-      group.appendChild(header);
-      group.appendChild(pagesContainer);
-      wrap.appendChild(group);
-      
-      // Init SortableJS untuk drag-drop pages
-      if (window.Sortable && !isCollapsed) {
-        Sortable.create(pagesContainer, {
-          group: 'pages',
-          animation: 150,
-          ghostClass: 'sortable-ghost',
-          onEnd: (evt) => {
-            const newSectionId = evt.to.dataset.sectionId;
-            const noteId = evt.item.dataset.id;
-            const note = noteById(noteId);
-            if (note) {
-              note.sectionId = newSectionId;
-              const items = evt.to.querySelectorAll('.page-item');
-              items.forEach((el, idx) => {
-                const n = noteById(el.dataset.id);
-                if (n) n.order = idx;
-              });
-              scheduleSave();
-              renderPageList();
-            }
-          }
-        });
+      const group = renderSectionGroup(sec, 0);
+      if (group) {
+        wrap.appendChild(group.element);
+        if (group.hasNotes) hasAnyNotes = true;
       }
     });
     
     document.getElementById("pages-empty").classList.toggle("hidden", hasAnyNotes || sections.length > 0);
   }
+}
+
+function renderSectionGroup(sec, depth) {
+  const notes = allNotesOf(sec.id);
+  const children = childSectionsOf(sec.id);
+  const hasNotes = notes.length > 0;
+  const hasChildren = children.length > 0;
+  
+  if (!hasNotes && !hasChildren) return null;
+  
+  const group = document.createElement("div");
+  group.className = "section-group";
+  group.style.marginLeft = `${depth * 16}px`;
+  
+  const isCollapsed = collapsedSections.has(sec.id);
+  const header = document.createElement("div");
+  header.className = "section-header" + (isCollapsed ? " collapsed" : "");
+  header.style.background = SEC_COLORS[sec.color % SEC_COLORS.length];
+  header.innerHTML = `<span class="toggle">▼</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
+  header.addEventListener("click", (e) => {
+    if (e.target.classList.contains('toggle') || e.target === header) {
+      if (collapsedSections.has(sec.id)) collapsedSections.delete(sec.id);
+      else collapsedSections.add(sec.id);
+      renderPageList();
+    }
+  });
+  header.addEventListener("contextmenu", (e) => showContextMenu(e, 'section', sec.id, sec.name, { color: sec.color }));
+  
+  const pagesContainer = document.createElement("div");
+  pagesContainer.className = "section-pages" + (isCollapsed ? " collapsed" : "");
+  pagesContainer.dataset.sectionId = sec.id;
+  
+  notes.forEach(n => {
+    const div = createPageItem(n, null);
+    pagesContainer.appendChild(div);
+  });
+  
+  group.appendChild(header);
+  group.appendChild(pagesContainer);
+  
+  // Render children recursively
+  children.forEach(child => {
+    const childGroup = renderSectionGroup(child, depth + 1);
+    if (childGroup) {
+      if (isCollapsed) childGroup.element.classList.add('hidden');
+      group.appendChild(childGroup.element);
+    }
+  });
+  
+  // Init SortableJS for pages
+  if (window.Sortable && !isCollapsed) {
+    Sortable.create(pagesContainer, {
+      group: 'pages',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      onEnd: (evt) => {
+        const newSectionId = evt.to.dataset.sectionId;
+        const noteId = evt.item.dataset.id;
+        const note = noteById(noteId);
+        if (note) {
+          note.sectionId = newSectionId;
+          const items = evt.to.querySelectorAll('.page-item');
+          items.forEach((el, idx) => {
+            const n = noteById(el.dataset.id);
+            if (n) n.order = idx;
+          });
+          scheduleSave();
+          renderPageList();
+        }
+      }
+    });
+  }
+  
+  return { element: group, hasNotes };
 }
 
 function createPageItem(n, crumb) {
@@ -728,6 +934,16 @@ function openNote(id) {
   renderPageList(); setMobileScreen("editor");
 }
 
+// Enter di judul → fokus ke editor
+document.getElementById("edit-title").addEventListener("keydown", (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (vditorInstance && vditorReady) {
+      vditorInstance.focus();
+    }
+  }
+});
+
 document.getElementById("edit-title").addEventListener("input", () => {
   const n = noteById(currentNoteId); if (!n) return;
   n.title = document.getElementById("edit-title").value;
@@ -737,6 +953,7 @@ document.getElementById("edit-category").addEventListener("input", () => {
   const n = noteById(currentNoteId); if (!n) return;
   n.categories = document.getElementById("edit-category").value.split(",").map(s => s.trim()).filter(Boolean);
   n.updatedAt = new Date().toISOString(); markSavingLabel(); scheduleSave();
+  renderNotebooks(); // Update tag cloud
 });
 document.getElementById("edit-due").addEventListener("input", () => {
   const n = noteById(currentNoteId); if (!n) return;
