@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Catatan</title>
+<title>notetakingku</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23FFD93D%22/><rect x=%225%22 y=%225%22 width=%2290%22 height=%2290%22 fill=%22%230D0D0D%22/><text x=%2250%22 y=%2272%22 font-size=%2260%22 font-weight=%22900%22 text-anchor=%22middle%22 fill=%22%23FFD93D%22 font-family=%22Space Grotesk, sans-serif%22>N</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -18,45 +19,50 @@
 <!-- GATE (LOGIN) -->
 <div id="gate" class="gate">
   <div class="gate-card">
-    <div class="gate-mark">C</div>
-    <h1 class="gate-title">CATATAN</h1>
-    <p class="gate-sub">Notebook, bagian, dan catatan bergaya OneNote — ditulis pakai markdown, tersimpan di Google Drive-mu sendiri.</p>
-    <button id="signin-btn" class="btn-brut btn-yellow btn-block">MASUK DENGAN GOOGLE</button>
+    <div class="gate-mark">N</div>
+    <h1 class="gate-title">notetakingku</h1>
+    <p class="gate-sub">Notebooks, sections, and notes — written in markdown, saved to your own Google Drive.</p>
+    <button id="signin-btn" class="btn-brut btn-yellow btn-block">SIGN IN WITH GOOGLE</button>
     <div id="gate-status" class="gate-note"></div>
   </div>
 </div>
 
 <!-- APP -->
 <div id="app" class="app hidden">
-  <!-- KOLOM 1: NOTEBOOKS -->
+  <!-- KOLOM 1: NOTEBOOKS (COLLAPSIBLE) -->
   <div id="col-notebooks" class="col col-notebooks mobile-show">
     <div class="col-head">
       <div class="brand">
-        <div class="brand-mark">C</div>
-        <div class="brand-name">CATATAN</div>
+        <div class="brand-mark">N</div>
+        <div class="brand-name">notetakingku</div>
       </div>
+      <button id="btn-collapse-sidebar" class="collapse-btn" title="Collapse sidebar">◀</button>
     </div>
-    <div class="search-box">
-      <input type="text" id="search-input" placeholder="Cari catatan...">
-      <button id="search-clear" class="search-clear hidden">×</button>
+    <div class="sidebar-content">
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Search notes...">
+        <button id="search-clear" class="search-clear hidden">×</button>
+      </div>
+      <div class="col-section-label">
+        <span>NOTEBOOKS</span>
+        <button id="btn-new-notebook" class="mini-add" title="New notebook">+</button>
+      </div>
+      <ul id="notebook-list" class="notebook-list"></ul>
     </div>
-    <div class="col-section-label">
-      <span>NOTEBOOK</span>
-      <button id="btn-new-notebook" class="mini-add" title="Notebook baru">+</button>
-    </div>
-    <ul id="notebook-list" class="notebook-list"></ul>
     <div class="col-foot">
       <div class="user-email" id="user-email"></div>
       <div class="sync-pill" id="sync-pill">
         <span class="sync-dot"></span>
         <span id="sync-label">sync</span>
       </div>
-      <button id="signout-btn" class="link-btn">Keluar</button>
+      <button id="signout-btn" class="link-btn">Sign out</button>
     </div>
   </div>
 
-  <!-- RESIZE HANDLE -->
-  <div class="resize-handle" id="resize-handle"></div>
+  <!-- SIDEBAR COLLAPSED TOGGLE -->
+  <div id="sidebar-collapsed-toggle" class="sidebar-collapsed-toggle hidden" title="Open sidebar">
+    <div class="collapsed-mark">N</div>
+  </div>
 
   <!-- KOLOM 2: SECTIONS + PAGES -->
   <div id="col-pages" class="col col-pages">
@@ -66,27 +72,30 @@
     </div>
     
     <div class="section-actions">
-      <button id="btn-new-section" class="mini-add-row">+ BAGIAN BARU</button>
-      <button id="btn-new-page" class="mini-add-row">+ CATATAN BARU</button>
+      <button id="btn-new-section" class="mini-add-row">+ NEW SECTION</button>
+      <button id="btn-new-page" class="mini-add-row">+ NEW NOTE</button>
     </div>
 
     <div id="page-list" class="page-list"></div>
-    <div id="pages-empty" class="empty-note hidden">Belum ada catatan di bagian ini.</div>
+    <div id="pages-empty" class="empty-note hidden">No notes in this section yet.</div>
   </div>
+
+  <!-- RESIZE HANDLE (antara kolom 2 dan 3) -->
+  <div class="resize-handle" id="resize-handle"></div>
 
   <!-- KOLOM 3: EDITOR -->
   <div id="col-editor" class="col col-editor">
     <div class="col-head with-back">
       <button id="btn-back-to-pages" class="btn-brut btn-back only-mobile">←</button>
-      <input type="text" id="edit-title" class="edit-title" placeholder="Judul catatan...">
+      <input type="text" id="edit-title" class="edit-title" placeholder="Note title...">
       <button id="btn-delete-note" class="btn-brut btn-del btn-red only-mobile">🗑</button>
     </div>
     <div id="meta-row" class="meta-row hidden">
-      <button id="tb-task" class="chip-toggle">✓ TUGAS</button>
+      <button id="tb-task" class="chip-toggle">✓ TASK</button>
       <input type="date" id="edit-due" class="chip-date hidden">
-      <input type="text" id="edit-category" class="chip-cat" placeholder="Kategori (pisahkan koma)">
+      <input type="text" id="edit-category" class="chip-cat" placeholder="Categories (comma separated)">
     </div>
-    <div id="editor-empty" class="empty-note">Pilih atau buat catatan untuk mulai menulis.</div>
+    <div id="editor-empty" class="empty-note">Select or create a note to start writing.</div>
     <div id="vditor-container" class="vditor-container hidden"></div>
     <div class="editor-footer">
       <span id="edit-savestate" class="save-state"></span>
@@ -97,11 +106,11 @@
 <!-- CUSTOM MODAL -->
 <div id="custom-modal" class="modal-overlay hidden">
   <div class="modal-box">
-    <h3 id="modal-title">Konfirmasi</h3>
-    <p id="modal-message">Apakah Anda yakin?</p>
-    <input type="text" id="modal-input" class="hidden" placeholder="Masukkan nama...">
+    <h3 id="modal-title">Confirm</h3>
+    <p id="modal-message">Are you sure?</p>
+    <input type="text" id="modal-input" class="hidden" placeholder="Enter name...">
     <div class="modal-actions">
-      <button id="modal-cancel" class="btn-brut">Batal</button>
+      <button id="modal-cancel" class="btn-brut">Cancel</button>
       <button id="modal-confirm" class="btn-brut btn-red">OK</button>
     </div>
   </div>
