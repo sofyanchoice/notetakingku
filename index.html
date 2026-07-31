@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>notetakingku</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23FFD93D%22/><rect x=%225%22 y=%225%22 width=%2290%22 height=%2290%22 fill=%22%230D0D0D%22/><text x=%2250%22 y=%2272%22 font-size=%2260%22 font-weight=%22900%22 text-anchor=%22middle%22 fill=%22%23FFD93D%22 font-family=%22Space Grotesk, sans-serif%22>N</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23FFD93D'/><rect x='5' y='5' width='90' height='90' fill='%230D0D0D'/><text x='50' y='72' font-size='60' font-weight='900' text-anchor='middle' fill='%23FFD93D' font-family='Arial,sans-serif'>N</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -29,14 +29,14 @@
 
 <!-- APP -->
 <div id="app" class="app hidden">
-  <!-- KOLOM 1: NOTEBOOKS (COLLAPSIBLE) -->
+  <!-- KOLOM 1: NOTEBOOKS (MINIMISABLE) -->
   <div id="col-notebooks" class="col col-notebooks mobile-show">
     <div class="col-head">
       <div class="brand">
         <div class="brand-mark">N</div>
         <div class="brand-name">notetakingku</div>
       </div>
-      <button id="btn-collapse-sidebar" class="collapse-btn" title="Collapse sidebar">◀</button>
+      <button id="btn-collapse-sidebar" class="collapse-btn" title="Minimize sidebar">◀</button>
     </div>
     <div class="sidebar-content">
       <div class="search-box">
@@ -48,6 +48,10 @@
         <button id="btn-new-notebook" class="mini-add" title="New notebook">+</button>
       </div>
       <ul id="notebook-list" class="notebook-list"></ul>
+      <div class="tag-cloud-section">
+        <div class="col-section-label"><span>TAGS</span></div>
+        <div id="tag-cloud" class="tag-cloud"></div>
+      </div>
     </div>
     <div class="col-foot">
       <div class="user-email" id="user-email"></div>
@@ -59,28 +63,23 @@
     </div>
   </div>
 
-  <!-- SIDEBAR COLLAPSED TOGGLE -->
-  <div id="sidebar-collapsed-toggle" class="sidebar-collapsed-toggle hidden" title="Open sidebar">
-    <div class="collapsed-mark">N</div>
-  </div>
-
   <!-- KOLOM 2: SECTIONS + PAGES -->
   <div id="col-pages" class="col col-pages">
     <div class="col-head with-back">
       <button id="btn-back-to-notebooks" class="btn-brut btn-back only-mobile">←</button>
-      <h2 id="notebook-title" class="col-title">—</h2>
+      <h2 id="notebook-title" class="col-title editable-title" title="Click to rename">—</h2>
     </div>
     
     <div class="section-actions">
       <button id="btn-new-section" class="mini-add-row">+ NEW SECTION</button>
-      <button id="btn-new-page" class="mini-add-row">+ NEW NOTE</button>
+      <button id="btn-new-page" class="mini-add-row">+ NEW NOTE (UNCATEGORIZED)</button>
     </div>
 
     <div id="page-list" class="page-list"></div>
-    <div id="pages-empty" class="empty-note hidden">No notes in this section yet.</div>
+    <div id="pages-empty" class="empty-note hidden">No notes yet.</div>
   </div>
 
-  <!-- RESIZE HANDLE (antara kolom 2 dan 3) -->
+  <!-- RESIZE HANDLE -->
   <div class="resize-handle" id="resize-handle"></div>
 
   <!-- KOLOM 3: EDITOR -->
@@ -93,7 +92,7 @@
     <div id="meta-row" class="meta-row hidden">
       <button id="tb-task" class="chip-toggle">✓ TASK</button>
       <input type="date" id="edit-due" class="chip-date hidden">
-      <input type="text" id="edit-category" class="chip-cat" placeholder="Categories (comma separated)">
+      <input type="text" id="edit-category" class="chip-cat" placeholder="Tags (comma separated)">
     </div>
     <div id="editor-empty" class="empty-note">Select or create a note to start writing.</div>
     <div id="vditor-container" class="vditor-container hidden"></div>
@@ -109,6 +108,7 @@
     <h3 id="modal-title">Confirm</h3>
     <p id="modal-message">Are you sure?</p>
     <input type="text" id="modal-input" class="hidden" placeholder="Enter name...">
+    <div id="modal-color-picker" class="color-picker hidden"></div>
     <div class="modal-actions">
       <button id="modal-cancel" class="btn-brut">Cancel</button>
       <button id="modal-confirm" class="btn-brut btn-red">OK</button>
