@@ -37,8 +37,8 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .editable-title:hover{border-color:var(--ink);background:var(--yellow);}
 
 /* ---- COLLAPSE BUTTON ---- */
-.collapse-btn{background:var(--ink);color:var(--yellow);border:2px solid var(--ink);width:28px;height:28px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.collapse-btn:hover{background:var(--yellow);color:var(--ink);}
+.collapse-btn{background-image:url('favicon.png');background-size:contain;background-repeat:no-repeat;background-position:center;background-color:transparent;border:none;width:30px;height:30px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;transition:transform 0.2s ease;}
+.collapse-btn:hover{opacity:0.8;}
 
 /* ---- RESIZE HANDLE ---- */
 .resize-handle{background:var(--ink);cursor:col-resize;transition:background .2s;}
@@ -63,7 +63,6 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .app.sidebar-collapsed .notebook-item .nb-dot{width:12px;height:12px;}
 
 .brand{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
-.brand-mark{width:30px;height:30px;background:var(--ink);color:var(--yellow);font-weight:900;font-size:15px;display:flex;align-items:center;justify-content:center;border:2px solid var(--ink);flex-shrink:0;}
 .brand-name{font-weight:700;font-size:16px;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 .sidebar-content{flex:1;overflow-y:auto;overflow-x:hidden;}
@@ -100,7 +99,9 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .link-btn{background:none;border:none;color:var(--ink);font-size:12px;text-decoration:underline;font-weight:600;padding:0;text-align:left;}
 
 /* ---- COL 2 ---- */
-.col-pages{background:var(--surface);border-right:4px solid var(--ink);min-width:0;overflow:hidden;}
+/* SECTION BISA SCROLL DI SINI */
+.col-pages{background:var(--surface);border-right:4px solid var(--ink);min-width:0;overflow-y:auto;overflow-x:hidden;}
+
 .section-actions{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
 .mini-add-row{background:none;border:2px dashed var(--ink);width:100%;padding:6px;font-size:11px;font-weight:700;color:var(--muted);text-align:left;}
 .mini-add-row:hover{background:#f2ecd9;color:var(--ink);}
@@ -108,16 +109,14 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .page-list{display:flex;flex-direction:column;gap:10px;}
 .section-group{margin-bottom:16px;}
 
-.section-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border:2.5px solid var(--ink);font-weight:700;font-size:13px;cursor:pointer;user-select:none;overflow:hidden;}
-.section-header .toggle{font-size:10px;width:14px;text-align:center;flex-shrink:0;}
+.section-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border:2.5px solid var(--ink);font-weight:700;font-size:13px;cursor:grab;user-select:none;overflow:hidden;}
+.section-header:active{cursor:grabbing;}
+.section-header .toggle{font-size:10px;width:14px;text-align:center;flex-shrink:0;cursor:pointer;}
 .section-header .sec-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
 .section-header .sec-count{font-size:10px;opacity:.7;flex-shrink:0;}
 .section-header.collapsed .toggle{transform:rotate(-90deg);}
 .section-header.sortable-ghost{opacity:0.4;}
 .section-header.active-section{box-shadow:3px 3px 0 var(--ink);}
-.section-header .drag-handle{cursor:grab;font-size:14px;flex-shrink:0;opacity:.6;}
-.section-header .drag-handle:hover{opacity:1;}
-.section-header .drag-handle:active{cursor:grabbing;}
 
 .section-pages{display:flex;flex-direction:column;gap:8px;margin-top:8px;margin-left:8px;border-left:2px dashed var(--ink);padding-left:8px;}
 .section-pages.collapsed{display:none;}
@@ -169,6 +168,10 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .vditor-toolbar{border-bottom:3px solid var(--ink) !important;background:#f2ecd9 !important;padding:6px 8px !important;display:flex;flex-wrap:wrap;gap:4px !important;}
 .vditor-toolbar .vditor-toolbar__item{margin:0 !important;}
 .vditor-ir{font-family:var(--font) !important;font-size:14.5px !important;}
+
+/* PERBAIKAN SPASI PREVIEW VDITOR */
+.vditor-ir { white-space: pre-wrap !important; word-break: break-word !important; }
+
 .vditor-ir pre.vditor-reset{padding:14px 16px !important;line-height:1.5 !important;}
 .vditor-ir pre.vditor-reset p{margin:0 0 0.3em 0 !important;}
 .vditor-ir pre.vditor-reset p:last-child{margin-bottom:0 !important;}
