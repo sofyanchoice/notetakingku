@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<!-- Menambahkan Phosphor Icons untuk Ikon yang lebih 3D, modern, dan konsisten -->
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="https://unpkg.com/vditor@3.10.4/dist/index.css">
 <script src="https://unpkg.com/vditor@3.10.4/dist/index.min.js"></script>
@@ -19,10 +21,10 @@
 <!-- GATE -->
 <div id="gate" class="gate">
   <div class="gate-card">
-    <div class="gate-mark">N</div>
+    <div class="gate-mark"><i class="ph-duotone ph-notebook" style="font-size: 32px;"></i></div>
     <h1 class="gate-title">notetakingku</h1>
     <p class="gate-sub">Notebooks, sections, and notes — written in markdown, saved to your own Google Drive.</p>
-    <button id="signin-btn" class="btn-brut btn-block btn-yellow">SIGN IN WITH GOOGLE</button>
+    <button id="signin-btn" class="btn-brut btn-block btn-yellow"><i class="ph-bold ph-google-logo"></i> SIGN IN WITH GOOGLE</button>
     <div id="gate-status" class="gate-note"></div>
   </div>
 </div>
@@ -33,56 +35,63 @@
   <!-- COL 1: NOTEBOOKS -->
   <div class="col col-notebooks">
     <div class="col-head">
-      <button id="btn-collapse-sidebar" class="collapse-btn" title="Toggle Sidebar">☰</button>
+      <!-- Posisi Logo dan 3 Stripe ditukar -->
       <div class="brand">
-        <div class="brand-name">notetakingku</div>
         <div class="brand-mark">n.</div>
+        <div class="brand-name">notetakingku</div>
       </div>
-      <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages" style="display:none">←</button>
+      <button id="btn-collapse-sidebar" class="collapse-btn" title="Toggle Sidebar">
+        <i class="ph-bold ph-list"></i>
+      </button>
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages" style="display:none"><i class="ph-bold ph-arrow-left"></i></button>
     </div>
     
     <div class="sidebar-content">
       <div class="search-box">
         <input type="text" id="search-input" placeholder="Search...">
-        <button class="search-clear hidden" id="search-clear">×</button>
+        <button class="search-clear hidden" id="search-clear"><i class="ph-bold ph-x"></i></button>
       </div>
       
       <div class="col-section-label">
         <span>NOTEBOOKS</span>
-        <button class="mini-add" id="btn-new-notebook">+</button>
+        <button class="mini-add" id="btn-new-notebook" title="Add Notebook"><i class="ph-bold ph-plus"></i></button>
       </div>
       
       <ul id="notebook-list" class="notebook-list"></ul>
-      
+    </div>
+    
+    <!-- Bagian Tags dan Akun dipindah ke bawah & Tags bisa diminimize -->
+    <div class="sidebar-bottom">
       <div class="tag-cloud-section">
-        <div class="col-section-label">
+        <div class="col-section-label" id="toggle-tags" style="cursor:pointer; user-select:none;">
           <span>TAGS</span>
+          <i class="ph-bold ph-caret-down" id="tags-caret"></i>
         </div>
         <div id="tag-cloud" class="tag-cloud"></div>
       </div>
-    </div>
-    
-    <div class="col-foot">
-      <div id="user-email" class="user-email"></div>
-      <div class="sync-pill" id="sync-pill">
-        <span class="sync-dot"></span>
-        <span id="sync-label">sync</span>
+      
+      <div class="col-foot">
+        <div id="user-email" class="user-email"></div>
+        <div class="sync-pill" id="sync-pill">
+          <i class="ph-bold ph-arrows-clockwise sync-dot"></i>
+          <span id="sync-label">sync</span>
+        </div>
+        <button id="signout-btn" class="link-btn"><i class="ph-bold ph-sign-out"></i> Sign out</button>
       </div>
-      <button id="signout-btn" class="link-btn">Sign out</button>
     </div>
   </div>
 
   <!-- COL 2: PAGES -->
   <div class="col col-pages" id="col-pages">
     <div class="col-head">
-      <button class="only-mobile btn-brut btn-back" id="btn-back-to-notebooks">←</button>
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-notebooks"><i class="ph-bold ph-arrow-left"></i></button>
       <h2 id="notebook-title" class="col-title editable-title">—</h2>
-      <button class="only-mobile btn-brut btn-back" id="btn-back-to-editor" style="display:none">→</button>
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-editor" style="display:none"><i class="ph-bold ph-arrow-right"></i></button>
     </div>
     
     <div class="section-actions">
-      <button class="mini-add-row" id="btn-new-section">+ NEW SECTION</button>
-      <button class="mini-add-row" id="btn-new-page">+ NEW NOTE</button>
+      <button class="mini-add-row" id="btn-new-section"><i class="ph-duotone ph-folder-plus"></i> NEW SECTION</button>
+      <button class="mini-add-row" id="btn-new-page"><i class="ph-duotone ph-file-plus"></i> NEW NOTE</button>
     </div>
     
     <div id="page-list" class="page-list"></div>
@@ -95,15 +104,19 @@
   <!-- COL 3: EDITOR -->
   <div class="col col-editor">
     <div class="col-head">
-      <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages">←</button>
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages"><i class="ph-bold ph-arrow-left"></i></button>
       <input type="text" id="edit-title" class="edit-title hidden" placeholder="Note title...">
-      <button class="btn-brut btn-del hidden" id="btn-delete-note" title="Delete Note">🗑</button>
+      
+      <!-- Tombol Copy Paste Dihapus, diganti dengan Ikon Hapus yang rapi -->
+      <button class="btn-brut btn-del hidden" id="btn-delete-note" title="Delete Note"><i class="ph-duotone ph-trash"></i></button>
     </div>
     
     <div id="editor-empty" class="empty-note">Select or create a note to start writing.</div>
     
     <div id="meta-row" class="meta-row hidden">
-      <button id="tb-task" class="chip-toggle">✓ TASK</button>
+      <button id="tb-task" class="chip-toggle" title="Toggle Task"><i class="ph-duotone ph-list-checks"></i> TASK</button>
+      <!-- Tombol baru untuk Check/Uncheck status Task -->
+      <button id="tb-done" class="chip-toggle hidden" title="Mark Task as Done"><i class="ph-bold ph-circle"></i> MARK DONE</button>
       <input type="date" id="edit-due" class="chip-date hidden">
       <input type="text" id="edit-category" class="chip-cat" placeholder="#tags (space separated)">
     </div>
