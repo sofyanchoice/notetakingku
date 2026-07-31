@@ -70,9 +70,10 @@ function loadCache() {
   const raw = localStorage.getItem(CACHE_KEY);
   if (raw) { try { state = migrate(JSON.parse(raw)); } catch (e) {} }
 }
+
 function saveCache() { localStorage.setItem(CACHE_KEY, JSON.stringify(state)); }
 
-function initGis() { 
+function initGis() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID, scope: DRIVE_SCOPE, callback: onTokenResponse,
   });
@@ -80,7 +81,6 @@ function initGis() {
     setGateStatus("Opening Google sign-in...");
     tokenClient.requestAccessToken({ prompt: "consent" });
   });
-  
   if (accessToken) {
     setGateStatus("Signing in automatically...");
     enterApp().catch(err => {
@@ -95,11 +95,11 @@ function initGis() {
 function setGateStatus(msg) { document.getElementById("gate-status").textContent = msg || ""; }
 
 async function onTokenResponse(resp) {
-  if (resp.error) { 
-    setGateStatus("Not signed in. Click the button to try again."); 
+  if (resp.error) {
+    setGateStatus("Not signed in. Click the button to try again.");
     localStorage.removeItem("catatan_token");
     accessToken = null;
-    return; 
+    return;
   }
   accessToken = resp.access_token;
   localStorage.setItem("catatan_token", accessToken);
@@ -229,39 +229,50 @@ function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toS
 function noteById(id) { return state.notes.find(n => n.id === id); }
 function sectionById(id) { return state.sections.find(s => s.id === id); }
 function notebookById(id) { return state.notebooks.find(n => n.id === id); }
-function rootSectionsOf(nbId) { 
+
+function rootSectionsOf(nbId) {
   return state.sections
     .filter(s => s.notebookId === nbId && !s.parentSectionId)
-    .sort((a,b) => (a.order||0) - (b.order||0)); 
+    .sort((a,b) => (a.order||0) - (b.order||0));
 }
+
 function childSectionsOf(parentId) {
   return state.sections.filter(s => s.parentSectionId === parentId).sort((a,b) => (a.order||0) - (b.order||0));
 }
-function allSectionsOf(nbId) { 
-  return state.sections.filter(s => s.notebookId === nbId).sort((a,b) => (a.order||0) - (b.order||0)); 
+
+function allSectionsOf(nbId) {
+  return state.sections.filter(s => s.notebookId === nbId).sort((a,b) => (a.order||0) - (b.order||0));
 }
+
 function allNotesOf(secId) { return state.notes.filter(n => n.sectionId === secId).sort((a,b) => (a.order||0) - (b.order||0)); }
+
 function crumbFor(n) {
   const sec = sectionById(n.sectionId);
   const nb = sec ? notebookById(sec.notebookId) : null;
   return nb && sec ? `${nb.name} / ${sec.name}` : "";
 }
+
 function plainText(md) {
   if (!md) return ""; let s = md;
-  s = s.replace(/```[\s\S]*?```/g, ""); s = s.replace(/`([^`]+)`/g, "$1");
-  s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, ""); s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
-  s = s.replace(/[#>*_~-]/g, ""); s = s.replace(/\s+/g, " ").trim();
+  s = s.replace(/`[\s\S]*?`/g, " "); s = s.replace(/`([^`]+)`/g, "$1");
+  s = s.replace(/!\[[^\]]\]\([^)]\)/g, " "); s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  s = s.replace(/[#>*_~-]/g, " "); s = s.replace(/\s+/g, " ").trim();
   return s;
 }
+
 function plainSnippet(md) { const t = plainText(md); return t.length > 90 ? t.slice(0, 90) + "…" : t; }
+
 function matchesSearch(n, q) {
   const hay = (n.title + " " + plainText(n.content) + " " + (n.categories || []).join(" ") + " " + crumbFor(n)).toLowerCase();
   return hay.includes(q);
 }
+
 function fmtDate(iso) { if (!iso) return ""; return new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short" }); }
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
+
 function getAllTags() {
   const tags = new Set();
   state.notes.forEach(n => {
@@ -273,7 +284,8 @@ function getAllTags() {
 // --- CUSTOM MODAL (dengan Enter/Esc + Color Picker support) ---
 let modalKeyHandler = null;
 let selectedColor = null;
-function showCustomModal({ title, message, showInput = false, inputValue = '', confirmText = 'OK', confirmClass = 'btn-red', showColorPicker = false, initialColor = 0 }) {
+
+function showCustomModal({ title, message, showInput = false, inputValue = '', confirmText = 'OK', confirmClass = 'btn-red', showColorPicker = false, initialColor = 0, colorType = 'section' }) {
   return new Promise((resolve) => {
     const modal = document.getElementById('custom-modal');
     const titleEl = document.getElementById('modal-title');
@@ -282,21 +294,26 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
     const colorPicker = document.getElementById('modal-color-picker');
     const confirmBtn = document.getElementById('modal-confirm');
     const cancelBtn = document.getElementById('modal-cancel');
-
-    titleEl.textContent = title; msgEl.textContent = message;
+    
+    titleEl.textContent = title;
+    msgEl.textContent = message;
     confirmBtn.textContent = confirmText;
     confirmBtn.className = 'btn-brut ' + confirmClass;
     
     if (showInput) {
-      inputEl.classList.remove('hidden'); inputEl.value = inputValue;
+      inputEl.classList.remove('hidden');
+      inputEl.value = inputValue;
       setTimeout(() => inputEl.select(), 50);
-    } else { inputEl.classList.add('hidden'); }
-
+    } else {
+      inputEl.classList.add('hidden');
+    }
+    
     if (showColorPicker) {
       colorPicker.classList.remove('hidden');
       colorPicker.innerHTML = '';
       selectedColor = initialColor;
-      SEC_COLORS.forEach((color, idx) => {
+      const colors = colorType === 'notebook' ? NB_COLORS : SEC_COLORS;
+      colors.forEach((color, idx) => {
         const swatch = document.createElement('div');
         swatch.className = 'color-swatch' + (idx === initialColor ? ' selected' : '');
         swatch.style.background = color;
@@ -307,12 +324,14 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
         };
         colorPicker.appendChild(swatch);
       });
-    } else { colorPicker.classList.add('hidden'); }
-
+    } else {
+      colorPicker.classList.add('hidden');
+    }
+    
     modal.classList.remove('hidden');
     
-    const cleanup = (result) => { 
-      modal.classList.add('hidden'); 
+    const cleanup = (result) => {
+      modal.classList.add('hidden');
       if (modalKeyHandler) {
         document.removeEventListener('keydown', modalKeyHandler);
         modalKeyHandler = null;
@@ -323,17 +342,17 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
         resolve(showInput ? inputEl.value.trim() : true);
       }
     };
-
+    
     const newConfirm = confirmBtn.cloneNode(true);
     confirmBtn.parentNode.replaceChild(newConfirm, confirmBtn);
     newConfirm.id = 'modal-confirm';
     newConfirm.onclick = () => cleanup(true);
-
+    
     const newCancel = cancelBtn.cloneNode(true);
     cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
     newCancel.id = 'modal-cancel';
     newCancel.onclick = () => cleanup(false);
-
+    
     modalKeyHandler = (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -349,30 +368,22 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
 
 // --- CONTEXT MENU ---
 const ctxMenu = document.getElementById('context-menu');
+
 function showContextMenu(e, type, id, name, extra = {}) {
   e.preventDefault(); e.stopPropagation();
   let buttons = '';
   if (type === 'notebook') {
-    buttons = `
-      <button data-action="rename">✏️ Rename</button>
-      <button data-action="color">🎨 Change Color</button>
-      <button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
   } else if (type === 'section') {
-    buttons = `
-      <button data-action="rename">✏️ Rename</button>
-      <button data-action="color">🎨 Change Color</button>
-      <button data-action="new-sub">📂 Add Subsection</button>
-      <button data-action="new-page">📄 Add Note Here</button>
-      <div class="divider"></div>
-      <button data-action="delete" class="danger">🗑️ Delete Section</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="new-sub">📂 Add Subsection</button><button data-action="new-page">📄 Add Note Here</button><div class="divider"></div><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
   } else if (type === 'note') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">️ Delete Note</button>`;
   }
-
   ctxMenu.innerHTML = buttons;
-  ctxMenu.style.left = `${e.clientX}px`; ctxMenu.style.top = `${e.clientY}px`;
+  ctxMenu.style.left = `${e.clientX}px`;
+  ctxMenu.style.top = `${e.clientY}px`;
   ctxMenu.classList.remove('hidden');
-
+  
   ctxMenu.querySelectorAll('button').forEach(btn => {
     btn.onclick = async () => {
       ctxMenu.classList.add('hidden');
@@ -381,7 +392,7 @@ function showContextMenu(e, type, id, name, extra = {}) {
         const result = await showCustomModal({ title: "Rename", message: `New name for "${name}":`, showInput: true, inputValue: name, confirmText: "Save", confirmClass: "btn-lime" });
         if (result) handleRename(type, id, result);
       } else if (action === 'color') {
-        const result = await showCustomModal({ title: "Change Color", message: `Choose a color for "${name}":`, showColorPicker: true, initialColor: extra.color || 0, confirmText: "Save", confirmClass: "btn-lime" });
+        const result = await showCustomModal({ title: "Change Color", message: `Choose a color for "${name}":`, showColorPicker: true, initialColor: extra.color || 0, confirmText: "Save", confirmClass: "btn-lime", colorType: type });
         if (result) handleColorChange(type, id, result.color);
       } else if (action === 'delete') {
         const ok = await showCustomModal({ title: "Delete Item", message: `Delete "${name}"? This cannot be undone.`, confirmText: "Delete", confirmClass: "btn-red" });
@@ -395,6 +406,7 @@ function showContextMenu(e, type, id, name, extra = {}) {
     };
   });
 }
+
 document.addEventListener('click', () => ctxMenu.classList.add('hidden'));
 window.addEventListener('blur', () => ctxMenu.classList.add('hidden'));
 
@@ -402,13 +414,15 @@ function handleRename(type, id, newName) {
   if (type === 'notebook') { const nb = notebookById(id); if(nb) nb.name = newName; }
   else if (type === 'section') { const sec = sectionById(id); if(sec) sec.name = newName; }
   else if (type === 'note') { const n = noteById(id); if(n) { n.title = newName; n.updatedAt = new Date().toISOString(); if(currentNoteId === id) document.getElementById('edit-title').value = newName; } }
-  scheduleSave(); renderAll();
+  scheduleSave();
+  renderAll();
 }
 
 function handleColorChange(type, id, colorIdx) {
   if (type === 'notebook') { const nb = notebookById(id); if(nb) nb.color = colorIdx; }
   else if (type === 'section') { const sec = sectionById(id); if(sec) sec.color = colorIdx; }
-  scheduleSave(); renderAll();
+  scheduleSave();
+  renderAll();
 }
 
 function handleDelete(type, id) {
@@ -427,7 +441,7 @@ function handleDelete(type, id) {
     collectIds(id);
     state.notes = state.notes.filter(n => !idsToRemove.has(n.sectionId));
     state.sections = state.sections.filter(s => !idsToRemove.has(s.id));
-    if (idsToRemove.has(currentSectionId)) { 
+    if (idsToRemove.has(currentSectionId)) {
       const remaining = rootSectionsOf(currentNotebookId);
       currentSectionId = remaining[0]?.id || null;
       if (!currentSectionId) toggleEditorEmpty(true);
@@ -436,24 +450,26 @@ function handleDelete(type, id) {
     state.notes = state.notes.filter(n => n.id !== id);
     if (currentNoteId === id) { currentNoteId = null; toggleEditorEmpty(true); }
   }
-  scheduleSave(); renderAll();
+  scheduleSave();
+  renderAll();
 }
 
 function handleNewSubSection(parentId, name) {
   const parentSec = sectionById(parentId);
   if (!parentSec) return;
   const siblings = childSectionsOf(parentId);
-  const s = { 
-    id: uid(), 
-    notebookId: parentSec.notebookId, 
-    parentSectionId: parentId, 
-    name: name, 
-    color: parentSec.color, 
-    order: siblings.length 
+  const s = {
+    id: uid(),
+    notebookId: parentSec.notebookId,
+    parentSectionId: parentId,
+    name: name,
+    color: parentSec.color,
+    order: siblings.length
   };
   state.sections.push(s);
   collapsedSections.delete(parentId);
-  scheduleSave(); renderAll();
+  scheduleSave();
+  renderAll();
 }
 
 function handleNewPageInSection(secId) {
@@ -494,14 +510,12 @@ RESIZE HANDLE
 ====================================================================== */
 function initResizeHandle() {
   const handle = document.getElementById('resize-handle');
-  
   handle.addEventListener('mousedown', (e) => {
     isResizing = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     e.preventDefault();
   });
-  
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
     const sidebarWidth = sidebarCollapsed ? 50 : 240;
@@ -510,7 +524,6 @@ function initResizeHandle() {
       document.documentElement.style.setProperty('--pages-width', newPagesWidth + 'px');
     }
   });
-  
   document.addEventListener('mouseup', () => {
     if (isResizing) {
       isResizing = false;
@@ -546,10 +559,9 @@ function initVditor() {
     ],
     upload: {
       url: '',
-      accept: 'image/*',
+      accept: 'image/',
       max: 10 * 1024 * 1024,
       handler(files) {
-        // Convert to base64
         const file = files[0];
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -557,7 +569,7 @@ function initVditor() {
           vditorInstance.insertValue(`![${file.name}](${base64})`);
         };
         reader.readAsDataURL(file);
-        return ' ';
+        return '';
       }
     },
     paste: (event) => {
@@ -569,7 +581,7 @@ function initVditor() {
           const reader = new FileReader();
           reader.onload = (e) => {
             const base64 = e.target.result;
-            vditorInstance.insertValue(`![pasted-image](${base64})`);
+            vditorInstance.insertValue(`\n![image](${base64})\n`);
           };
           reader.readAsDataURL(file);
           return false;
@@ -580,17 +592,21 @@ function initVditor() {
     input: (value) => { onEditorInput(value); }
   });
 }
+
 function loadNoteIntoEditor(n) {
   if (!vditorReady) { pendingNote = n; return; }
-  suppressInput = true; vditorInstance.setValue(n.content || "");
+  suppressInput = true;
+  vditorInstance.setValue(n.content || "");
   setTimeout(() => { suppressInput = false; }, 100);
 }
+
 function onEditorInput(value) {
   if (suppressInput) return;
   const n = noteById(currentNoteId); if (!n) return;
   n.content = value; n.updatedAt = new Date().toISOString();
   markSavingLabel(); scheduleSave();
 }
+
 function markSavingLabel() {
   document.getElementById("edit-savestate").textContent = "Saving...";
   clearTimeout(editorSaveLabelTimer);
@@ -604,11 +620,9 @@ function renderNotebooks() {
   const list = document.getElementById("notebook-list");
   list.innerHTML = "";
   const sortedNotebooks = [...state.notebooks].sort((a,b) => a.name.localeCompare(b.name));
-  
   sortedNotebooks.forEach(nb => {
     const secIds = state.sections.filter(s => s.notebookId === nb.id).map(s => s.id);
     const count = state.notes.filter(n => secIds.includes(n.sectionId)).length;
-
     const li = document.createElement("li");
     li.className = "notebook-item" + (currentNotebookId === nb.id && mode === "normal" ? " active" : "");
     li.innerHTML = `<span class="nb-dot" style="background:${NB_COLORS[nb.color % NB_COLORS.length]}"></span><span class="nb-name">${escapeHtml(nb.name)}</span><span class="nb-count">${count}</span>`;
@@ -616,7 +630,7 @@ function renderNotebooks() {
     li.addEventListener("contextmenu", (e) => showContextMenu(e, 'notebook', nb.id, nb.name, { color: nb.color }));
     list.appendChild(li);
   });
-
+  
   // Render tag cloud
   const tagCloud = document.getElementById("tag-cloud");
   tagCloud.innerHTML = "";
@@ -627,7 +641,7 @@ function renderNotebooks() {
     tags.forEach(tag => {
       const chip = document.createElement('div');
       chip.className = 'tag-chip' + (activeTag === tag ? ' active' : '');
-      chip.textContent = tag;
+      chip.textContent = '#' + tag;
       chip.onclick = () => {
         if (activeTag === tag) {
           activeTag = null;
@@ -644,19 +658,22 @@ function renderNotebooks() {
 }
 
 document.getElementById("btn-new-notebook").addEventListener("click", async () => {
-  const result = await showCustomModal({ 
-    title: "New Notebook", 
-    message: "Give your notebook a name:", 
-    showInput: true, 
+  const result = await showCustomModal({
+    title: "New Notebook",
+    message: "Give your notebook a name:",
+    showInput: true,
     showColorPicker: true,
-    confirmText: "Create", 
-    confirmClass: "btn-lime" 
+    confirmText: "Create",
+    confirmClass: "btn-lime",
+    colorType: 'notebook'
   });
   if (!result.value) return;
   const nb = { id: uid(), name: result.value, color: result.color };
   const sec = { id: uid(), notebookId: nb.id, parentSectionId: null, name: "General", color: 0, order: 0 };
-  state.notebooks.push(nb); state.sections.push(sec);
-  scheduleSave(); selectNotebook(nb.id);
+  state.notebooks.push(nb);
+  state.sections.push(sec);
+  scheduleSave();
+  selectNotebook(nb.id);
 });
 
 document.getElementById("search-input").addEventListener("input", (e) => {
@@ -664,7 +681,8 @@ document.getElementById("search-input").addEventListener("input", (e) => {
   mode = searchQuery ? "search" : "normal";
   activeTag = null;
   document.getElementById("search-clear").classList.toggle("hidden", !searchQuery);
-  renderAll(); if (mode === "search") setMobileScreen("pages");
+  renderAll();
+  if (mode === "search") setMobileScreen("pages");
 });
 
 document.getElementById("search-clear").addEventListener("click", () => {
@@ -679,17 +697,33 @@ document.getElementById("search-clear").addEventListener("click", () => {
 RENDER — KOLOM 2: SECTIONS + PAGES (WITH SUBSECTIONS)
 ====================================================================== */
 function selectNotebook(id) {
-  currentNotebookId = id; mode = "normal"; activeTag = null;
+  currentNotebookId = id;
+  mode = "normal";
+  activeTag = null;
   const sections = rootSectionsOf(id);
-  if (sections.length === 0) {
-    const s = { id: uid(), notebookId: id, parentSectionId: null, name: "General", color: 0, order: 0 };
-    state.sections.push(s);
+  
+  // Pastikan ada "Uncategorized" section
+  let uncategorized = sections.find(s => s.name === "Uncategorized");
+  if (!uncategorized) {
+    uncategorized = {
+      id: uid(),
+      notebookId: id,
+      parentSectionId: null,
+      name: "Uncategorized",
+      color: 0,
+      order: 0
+    };
+    state.sections.push(uncategorized);
     scheduleSave();
-    currentSectionId = s.id;
+  }
+  
+  if (sections.length === 0) {
+    currentSectionId = uncategorized.id;
   } else {
     currentSectionId = sections[0].id;
   }
-  renderAll(); setMobileScreen("pages");
+  renderAll();
+  setMobileScreen("pages");
 }
 
 // Click on notebook title to rename
@@ -697,13 +731,13 @@ document.getElementById("notebook-title").addEventListener("click", async () => 
   if (!currentNotebookId || mode !== "normal") return;
   const nb = notebookById(currentNotebookId);
   if (!nb) return;
-  const result = await showCustomModal({ 
-    title: "Rename Notebook", 
-    message: `New name for "${nb.name}":`, 
-    showInput: true, 
-    inputValue: nb.name, 
-    confirmText: "Save", 
-    confirmClass: "btn-lime" 
+  const result = await showCustomModal({
+    title: "Rename Notebook",
+    message: `New name for "${nb.name}":`,
+    showInput: true,
+    inputValue: nb.name,
+    confirmText: "Save",
+    confirmClass: "btn-lime"
   });
   if (result) {
     nb.name = result;
@@ -714,23 +748,23 @@ document.getElementById("notebook-title").addEventListener("click", async () => 
 
 document.getElementById("btn-new-section").addEventListener("click", async () => {
   if (!currentNotebookId) return;
-  const result = await showCustomModal({ 
-    title: "New Section", 
-    message: "Section name:", 
-    showInput: true, 
+  const result = await showCustomModal({
+    title: "New Section",
+    message: "Section name:",
+    showInput: true,
     showColorPicker: true,
-    confirmText: "Create", 
-    confirmClass: "btn-lime" 
+    confirmText: "Create",
+    confirmClass: "btn-lime"
   });
   if (!result.value) return;
   const siblings = rootSectionsOf(currentNotebookId);
-  const s = { 
-    id: uid(), 
-    notebookId: currentNotebookId, 
-    parentSectionId: null, 
-    name: result.value, 
-    color: result.color, 
-    order: siblings.length 
+  const s = {
+    id: uid(),
+    notebookId: currentNotebookId,
+    parentSectionId: null,
+    name: result.value,
+    color: result.color,
+    order: siblings.length
   };
   state.sections.push(s);
   currentSectionId = s.id;
@@ -752,21 +786,51 @@ document.getElementById("btn-new-page").addEventListener("click", () => {
     categories: [], isTask: false, done: false, due: null, order: Date.now(),
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
   };
-  state.notes.unshift(n); scheduleSave();
-  renderPageList(); openNote(n.id);
+  state.notes.unshift(n);
+  scheduleSave();
+  renderPageList();
+  openNote(n.id);
+});
+
+// NEW: Button untuk note uncategorized
+document.getElementById("btn-new-uncategorized-note").addEventListener("click", () => {
+  if (!currentNotebookId) return;
+  const uncategorized = state.sections.find(s =>
+    s.notebookId === currentNotebookId &&
+    s.name === "Uncategorized" &&
+    !s.parentSectionId
+  );
+  if (!uncategorized) return;
+  
+  const n = {
+    id: uid(),
+    sectionId: uncategorized.id,
+    title: "",
+    content: "",
+    categories: [],
+    isTask: false,
+    done: false,
+    due: null,
+    order: Date.now(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  state.notes.unshift(n);
+  scheduleSave();
+  renderPageList();
+  openNote(n.id);
 });
 
 function renderPageList() {
   const wrap = document.getElementById("page-list");
   wrap.innerHTML = "";
   let title = "—";
-
+  
   if (mode === "search") {
     const rows = state.notes.filter(n => matchesSearch(n, searchQuery));
     title = `Search: "${searchQuery}"`;
     document.getElementById("notebook-title").textContent = title;
     document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
-    
     rows.forEach(n => {
       const div = createPageItem(n, crumbFor(n));
       wrap.appendChild(div);
@@ -776,7 +840,6 @@ function renderPageList() {
     title = `Tag: "${activeTag}"`;
     document.getElementById("notebook-title").textContent = title;
     document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
-    
     rows.forEach(n => {
       const div = createPageItem(n, crumbFor(n));
       wrap.appendChild(div);
@@ -786,7 +849,6 @@ function renderPageList() {
     const nb = notebookById(currentNotebookId);
     title = nb ? nb.name : "—";
     document.getElementById("notebook-title").textContent = title;
-    
     let hasAnyNotes = false;
     
     sections.forEach(sec => {
@@ -814,17 +876,23 @@ function renderSectionGroup(sec, depth) {
   group.style.marginLeft = `${depth * 16}px`;
   
   const isCollapsed = collapsedSections.has(sec.id);
+  
   const header = document.createElement("div");
   header.className = "section-header" + (isCollapsed ? " collapsed" : "");
   header.style.background = SEC_COLORS[sec.color % SEC_COLORS.length];
-  header.innerHTML = `<span class="toggle">▼</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
+  header.innerHTML = `<span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
+  
   header.addEventListener("click", (e) => {
     if (e.target.classList.contains('toggle') || e.target === header) {
-      if (collapsedSections.has(sec.id)) collapsedSections.delete(sec.id);
-      else collapsedSections.add(sec.id);
+      if (collapsedSections.has(sec.id)) {
+        collapsedSections.delete(sec.id);
+      } else {
+        collapsedSections.add(sec.id);
+      }
       renderPageList();
     }
   });
+  
   header.addEventListener("contextmenu", (e) => showContextMenu(e, 'section', sec.id, sec.name, { color: sec.color }));
   
   const pagesContainer = document.createElement("div");
@@ -843,12 +911,14 @@ function renderSectionGroup(sec, depth) {
   children.forEach(child => {
     const childGroup = renderSectionGroup(child, depth + 1);
     if (childGroup) {
-      if (isCollapsed) childGroup.element.classList.add('hidden');
+      if (isCollapsed) {
+        childGroup.element.classList.add('hidden');
+      }
       group.appendChild(childGroup.element);
     }
   });
   
-  // Init SortableJS for pages
+  // Init SortableJS untuk pages
   if (window.Sortable && !isCollapsed) {
     Sortable.create(pagesContainer, {
       group: 'pages',
@@ -880,30 +950,34 @@ function createPageItem(n, crumb) {
   const div = document.createElement("div");
   div.className = "page-item" + (currentNoteId === n.id ? " active" : "");
   div.dataset.id = n.id;
+  
   const overdue = n.isTask && !n.done && n.due && n.due < today;
-  const checkHtml = n.isTask ? `<span class="mini-check ${n.done ? "done" : ""}" data-id="${n.id}">${n.done ? "✓" : ""}</span>` : "";
-  div.innerHTML = `${crumb ? `<div class="page-item-crumb">${escapeHtml(crumb)}</div>` : ""}
-    <p class="page-item-title">${checkHtml}<span>${escapeHtml(n.title || "Untitled")}</span></p>
-    <div class="page-item-snip">${escapeHtml(plainSnippet(n.content))}</div>
-    <div class="page-item-foot"><span>${fmtDate(n.updatedAt)}</span>${n.isTask && n.due ? `<span class="page-item-due ${overdue ? "overdue" : ""}">${fmtDate(n.due)}</span>` : ""}</div>`;
+  const checkHtml = n.isTask ? `<span class="mini-check ${n.done ? 'done' : ''}" data-id="${n.id}">${n.done ? '✓' : ''}</span>` : '';
+  
+  div.innerHTML = `${crumb ? `<div class="page-item-crumb">${escapeHtml(crumb)}</div>` : ''}<p class="page-item-title">${checkHtml}<span>${escapeHtml(n.title || "Untitled")}</span></p><div class="page-item-snip">${escapeHtml(plainSnippet(n.content))}</div><div class="page-item-foot"><span>${fmtDate(n.updatedAt)}</span>${n.isTask && n.due ? `<span class="page-item-due ${overdue ? 'overdue' : ''}">${fmtDate(n.due)}</span>` : ''}</div>`;
   
   div.addEventListener("click", (e) => {
     if (e.target.classList.contains("mini-check")) return;
     openNote(n.id);
   });
+  
   div.addEventListener("contextmenu", (e) => showContextMenu(e, 'note', n.id, n.title || "Untitled"));
   
   const chk = div.querySelector(".mini-check");
   if (chk) chk.addEventListener("click", (e) => {
-    e.stopPropagation(); n.done = !n.done; n.updatedAt = new Date().toISOString();
-    scheduleSave(); renderPageList();
+    e.stopPropagation();
+    n.done = !n.done;
+    n.updatedAt = new Date().toISOString();
+    scheduleSave();
+    renderPageList();
   });
   
   return div;
 }
 
 function renderAll() {
-  renderNotebooks(); renderPageList();
+  renderNotebooks();
+  renderPageList();
 }
 
 function queuePageListRefresh() {
@@ -923,15 +997,19 @@ function toggleEditorEmpty(showEmpty) {
 }
 
 function openNote(id) {
-  currentNoteId = id; const n = noteById(id); if (!n) return;
+  currentNoteId = id;
+  const n = noteById(id); if (!n) return;
   document.getElementById("edit-title").value = n.title || "";
-  document.getElementById("edit-category").value = (n.categories || []).join(", ");
+  // Format tags dengan # dan spasi
+  document.getElementById("edit-category").value = (n.categories || []).map(t => '#' + t).join(' ');
   document.getElementById("edit-due").value = n.due || "";
   document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
   document.getElementById("tb-task").classList.toggle("active", !!n.isTask);
   document.getElementById("edit-savestate").textContent = "";
-  toggleEditorEmpty(false); loadNoteIntoEditor(n);
-  renderPageList(); setMobileScreen("editor");
+  toggleEditorEmpty(false);
+  loadNoteIntoEditor(n);
+  renderPageList();
+  setMobileScreen("editor");
 }
 
 // Enter di judul → fokus ke editor
@@ -947,25 +1025,44 @@ document.getElementById("edit-title").addEventListener("keydown", (e) => {
 document.getElementById("edit-title").addEventListener("input", () => {
   const n = noteById(currentNoteId); if (!n) return;
   n.title = document.getElementById("edit-title").value;
-  n.updatedAt = new Date().toISOString(); markSavingLabel(); scheduleSave(); queuePageListRefresh();
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  queuePageListRefresh();
 });
+
 document.getElementById("edit-category").addEventListener("input", () => {
   const n = noteById(currentNoteId); if (!n) return;
-  n.categories = document.getElementById("edit-category").value.split(",").map(s => s.trim()).filter(Boolean);
-  n.updatedAt = new Date().toISOString(); markSavingLabel(); scheduleSave();
-  renderNotebooks(); // Update tag cloud
+  const raw = document.getElementById("edit-category").value;
+  // Parse tags: split by space, filter yang mulai dengan #
+  n.categories = raw.split(/\s+/)
+    .map(s => s.trim())
+    .filter(s => s.startsWith('#') && s.length > 1)
+    .map(s => s.slice(1).toLowerCase()); // Simpan tanpa #
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  renderNotebooks();
 });
+
 document.getElementById("edit-due").addEventListener("input", () => {
   const n = noteById(currentNoteId); if (!n) return;
   n.due = document.getElementById("edit-due").value || null;
-  n.updatedAt = new Date().toISOString(); markSavingLabel(); scheduleSave(); queuePageListRefresh();
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  queuePageListRefresh();
 });
+
 document.getElementById("tb-task").addEventListener("click", () => {
   const n = noteById(currentNoteId); if (!n) return;
   n.isTask = !n.isTask;
   document.getElementById("tb-task").classList.toggle("active", n.isTask);
   document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
-  n.updatedAt = new Date().toISOString(); markSavingLabel(); scheduleSave(); queuePageListRefresh();
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  queuePageListRefresh();
 });
 
 document.getElementById("btn-delete-note").addEventListener("click", async () => {
@@ -984,5 +1081,6 @@ function setMobileScreen(name) {
     document.getElementById(id).classList.toggle("mobile-show", id === show);
   });
 }
+
 document.getElementById("btn-back-to-notebooks").addEventListener("click", () => setMobileScreen("notebooks"));
 document.getElementById("btn-back-to-pages").addEventListener("click", () => setMobileScreen("pages"));
