@@ -34,10 +34,10 @@
   <div class="col col-notebooks">
     <div class="col-head">
       <div class="brand">
-        <div class="brand-mark">N</div>
+        <!-- Ikon 'N' dihapus, diganti dengan favicon yang rapi -->
         <div class="brand-name">notetakingku</div>
       </div>
-      <button id="btn-collapse-sidebar" class="collapse-btn">◀</button>
+      <button id="btn-collapse-sidebar" class="collapse-btn" title="Toggle Sidebar"></button>
       <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages" style="display:none">←</button>
     </div>
     
@@ -97,7 +97,11 @@
     <div class="col-head">
       <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages">←</button>
       <input type="text" id="edit-title" class="edit-title hidden" placeholder="Note title...">
-      <button class="only-mobile btn-brut btn-del hidden" id="btn-delete-note">🗑</button>
+      
+      <!-- Tombol Copy Paste dan Hapus -->
+      <button class="btn-brut btn-back hidden" id="btn-copy-note" title="Copy Note">📋</button>
+      <button class="btn-brut btn-back hidden" id="btn-paste-note" title="Paste to Note">📥</button>
+      <button class="btn-brut btn-del hidden" id="btn-delete-note" title="Delete Note">🗑</button>
     </div>
     
     <div id="editor-empty" class="empty-note">Select or create a note to start writing.</div>
