@@ -196,14 +196,17 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .col-pages{border-right:none;}
 }
 
-/* Perbaiki checkbox agar tidak stretch */
+/* Perbaiki checkbox - FIXED SIZE */
 .mini-check {
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
-  min-height: 16px;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
   border: 2px solid var(--ink);
   flex-shrink: 0;
+  flex-grow: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -217,38 +220,11 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
   background: var(--lime);
 }
 
-/* Sidebar collapse - hanya tampilkan dot warna */
-.app.sidebar-collapsed .notebook-item {
-  padding: 6px 4px;
-  justify-content: center;
-}
-
-.app.sidebar-collapsed .nb-name,
-.app.sidebar-collapsed .nb-count {
-  display: none;
-}
-
-.app.sidebar-collapsed .nb-dot {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--ink);
-}
-
-/* Perbaiki tampilan subsection */
-.section-group {
-  margin-bottom: 16px;
-}
-
-.section-pages {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-  margin-left: 8px;
-  border-left: 2px dashed var(--ink);
-  padding-left: 8px;
-}
-
-.section-pages.collapsed {
-  display: none;
+/* Section header toggle */
+.section-header .toggle {
+  font-size: 10px;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  flex-grow: 0;
 }
