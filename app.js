@@ -49,7 +49,11 @@ function migrate(data) {
       order: s.order !== undefined ? s.order : i,
       color: s.color !== undefined ? s.color : 0
     }));
-    data.notes = data.notes || [];
+    data.notes = (data.notes || []).map(n => {
+      if (n.notebookId) return n;
+      const sec = data.sections.find(s => s.id === n.sectionId);
+      return { ...n, notebookId: sec ? sec.notebookId : (data.notebooks[0] ? data.notebooks[0].id : null) };
+    });
     return data;
   }
   return defaultState();
@@ -247,9 +251,13 @@ function allSectionsOf(nbId) {
 function allNotesOf(secId) { return state.notes.filter(n => n.sectionId === secId).sort((a,b) => (a.order||0) - (b.order||0)); }
 
 function crumbFor(n) {
-  const sec = sectionById(n.sectionId);
-  const nb = sec ? notebookById(sec.notebookId) : null;
-  return nb && sec ? `${nb.name} / ${sec.name}` : "";
+  if (n.sectionId) {
+    const sec = sectionById(n.sectionId);
+    const nb = sec ? notebookById(sec.notebookId) : null;
+    return nb && sec ? `${nb.name} / ${sec.name}` : "";
+  }
+  const nb = notebookById(n.notebookId);
+  return nb ? `${nb.name} / (no section)` : "";
 }
 
 function plainText(md) {
@@ -428,7 +436,7 @@ function handleColorChange(type, id, colorIdx) {
 function handleDelete(type, id) {
   if (type === 'notebook') {
     const secIds = allSectionsOf(id).map(s => s.id);
-    state.notes = state.notes.filter(n => !secIds.includes(n.sectionId));
+    state.notes = state.notes.filter(n => !secIds.includes(n.sectionId) && !(!n.sectionId && n.notebookId === id));
     state.sections = state.sections.filter(s => s.notebookId !== id);
     state.notebooks = state.notebooks.filter(n => n.id !== id);
     if (currentNotebookId === id) { currentNotebookId = state.notebooks[0]?.id || null; toggleEditorEmpty(true); }
@@ -468,13 +476,17 @@ function handleNewSubSection(parentId, name) {
   };
   state.sections.push(s);
   collapsedSections.delete(parentId);
+  currentSectionId = s.id;
   scheduleSave();
   renderAll();
 }
 
 function handleNewPageInSection(secId) {
+  const sec = sectionById(secId);
+  if (!sec) return;
+  currentSectionId = secId;
   const n = {
-    id: uid(), sectionId: secId, title: "", content: "",
+    id: uid(), notebookId: sec.notebookId, sectionId: secId, title: "", content: "",
     categories: [], isTask: false, done: false, due: null, order: Date.now(),
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
   };
@@ -635,7 +647,7 @@ function renderNotebooks() {
   const sortedNotebooks = [...state.notebooks].sort((a,b) => a.name.localeCompare(b.name));
   sortedNotebooks.forEach(nb => {
     const secIds = state.sections.filter(s => s.notebookId === nb.id).map(s => s.id);
-    const count = state.notes.filter(n => secIds.includes(n.sectionId)).length;
+    const count = state.notes.filter(n => secIds.includes(n.sectionId) || (!n.sectionId && n.notebookId === nb.id)).length;
     const li = document.createElement("li");
     li.className = "notebook-item" + (currentNotebookId === nb.id && mode === "normal" ? " active" : "");
     li.innerHTML = `<span class="nb-dot" style="background:${NB_COLORS[nb.color % NB_COLORS.length]}"></span><span class="nb-name">${escapeHtml(nb.name)}</span><span class="nb-count">${count}</span>`;
@@ -711,15 +723,7 @@ function selectNotebook(id) {
   currentNotebookId = id;
   mode = "normal";
   activeTag = null;
-  const sections = rootSectionsOf(id);
-  if (sections.length === 0) {
-    const s = { id: uid(), notebookId: id, parentSectionId: null, name: "General", color: 0, order: 0 };
-    state.sections.push(s);
-    scheduleSave();
-    currentSectionId = s.id;
-  } else {
-    currentSectionId = sections[0].id;
-  }
+  currentSectionId = null;
   renderAll();
   setMobileScreen("pages");
 }
@@ -771,16 +775,10 @@ document.getElementById("btn-new-section").addEventListener("click", async () =>
 
 document.getElementById("btn-new-page").addEventListener("click", () => {
   if (mode !== "normal" || !currentNotebookId) return;
-  const sections = rootSectionsOf(currentNotebookId);
-  if (sections.length === 0) {
-    const s = { id: uid(), notebookId: currentNotebookId, parentSectionId: null, name: "General", color: 0, order: 0 };
-    state.sections.push(s);
-    currentSectionId = s.id;
-  }
-  const targetSectionId = currentSectionId || sections[0].id;
   const n = {
     id: uid(),
-    sectionId: targetSectionId,
+    notebookId: currentNotebookId,
+    sectionId: currentSectionId || null,
     title: "",
     content: "",
     categories: [],
@@ -825,75 +823,90 @@ function renderPageList() {
     const nb = notebookById(currentNotebookId);
     title = nb ? nb.name : "—";
     document.getElementById("notebook-title").textContent = title;
-    let hasAnyNotes = false;
-    
-    sections.forEach(sec => {
-      const group = renderSectionGroup(sec, 0);
-      if (group) {
-        wrap.appendChild(group.element);
-        if (group.hasNotes) hasAnyNotes = true;
-      }
-    });
-    
-    document.getElementById("pages-empty").classList.toggle("hidden", hasAnyNotes || sections.length > 0);
+
+    const ungrouped = state.notes
+      .filter(n => n.notebookId === currentNotebookId && !n.sectionId)
+      .sort((a,b) => (b.order||0) - (a.order||0));
+    ungrouped.forEach(n => wrap.appendChild(createPageItem(n, null)));
+
+    const rootWrap = document.createElement("div");
+    rootWrap.className = "sections-wrap";
+    sections.forEach(sec => rootWrap.appendChild(renderSectionGroup(sec, 0)));
+    wrap.appendChild(rootWrap);
+
+    if (window.Sortable && sections.length > 1) {
+      Sortable.create(rootWrap, {
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        onEnd: () => reorderSections(rootWrap)
+      });
+    }
+
+    document.getElementById("pages-empty").classList.toggle("hidden", ungrouped.length > 0 || sections.length > 0);
   }
+}
+
+function reorderSections(container) {
+  Array.from(container.children).forEach((el, idx) => {
+    const sec = sectionById(el.dataset.sectionId);
+    if (sec) sec.order = idx;
+  });
+  scheduleSave();
+  renderPageList();
 }
 
 function renderSectionGroup(sec, depth) {
   const notes = allNotesOf(sec.id);
   const children = childSectionsOf(sec.id);
-  const hasNotes = notes.length > 0;
-  const hasChildren = children.length > 0;
-  
-  if (!hasNotes && !hasChildren) return null;
-  
+
   const group = document.createElement("div");
   group.className = "section-group";
+  group.dataset.sectionId = sec.id;
   group.style.marginLeft = `${depth * 16}px`;
-  
+
   const isCollapsed = collapsedSections.has(sec.id);
-  
+  const isActive = currentSectionId === sec.id;
+
   const header = document.createElement("div");
-  header.className = "section-header" + (isCollapsed ? " collapsed" : "");
+  header.className = "section-header" + (isCollapsed ? " collapsed" : "") + (isActive ? " active-section" : "");
   header.style.background = SEC_COLORS[sec.color % SEC_COLORS.length];
-  header.innerHTML = `<span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
-  
+  header.innerHTML = `<span class="drag-handle" title="Drag to reorder">⠿</span><span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
+
   header.addEventListener("click", (e) => {
-    if (e.target.classList.contains('toggle') || e.target === header) {
-      if (collapsedSections.has(sec.id)) {
-        collapsedSections.delete(sec.id);
-      } else {
-        collapsedSections.add(sec.id);
-      }
+    if (e.target.closest('.toggle')) {
+      if (collapsedSections.has(sec.id)) collapsedSections.delete(sec.id);
+      else collapsedSections.add(sec.id);
       renderPageList();
+      return;
     }
+    if (e.target.closest('.drag-handle')) return;
+    currentSectionId = isActive ? null : sec.id;
+    renderPageList();
   });
-  
+
   header.addEventListener("contextmenu", (e) => showContextMenu(e, 'section', sec.id, sec.name, { color: sec.color }));
-  
+
   const pagesContainer = document.createElement("div");
   pagesContainer.className = "section-pages" + (isCollapsed ? " collapsed" : "");
   pagesContainer.dataset.sectionId = sec.id;
-  
+
   notes.forEach(n => {
     const div = createPageItem(n, null);
     pagesContainer.appendChild(div);
   });
-  
+
   group.appendChild(header);
   group.appendChild(pagesContainer);
-  
+
+  const childWrap = document.createElement("div");
+  childWrap.className = "child-sections" + (isCollapsed ? " collapsed" : "");
   children.forEach(child => {
-    const childGroup = renderSectionGroup(child, depth + 1);
-    if (childGroup) {
-      if (isCollapsed) {
-        childGroup.element.classList.add('hidden');
-      }
-      group.appendChild(childGroup.element);
-    }
+    childWrap.appendChild(renderSectionGroup(child, depth + 1));
   });
-  
-  if (window.Sortable && !isCollapsed) {
+  group.appendChild(childWrap);
+
+  if (window.Sortable) {
     Sortable.create(pagesContainer, {
       group: 'pages',
       animation: 150,
@@ -914,9 +927,17 @@ function renderSectionGroup(sec, depth) {
         }
       }
     });
+    if (children.length > 1) {
+      Sortable.create(childWrap, {
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        onEnd: () => reorderSections(childWrap)
+      });
+    }
   }
-  
-  return { element: group, hasNotes };
+
+  return group;
 }
 
 function createPageItem(n, crumb) {
@@ -928,7 +949,7 @@ function createPageItem(n, crumb) {
   const overdue = n.isTask && !n.done && n.due && n.due < today;
   const checkHtml = n.isTask ? `<span class="mini-check ${n.done ? 'done' : ''}" data-id="${n.id}">${n.done ? '✓' : ''}</span>` : '';
   
-  div.innerHTML = `${crumb ? `<div class="page-item-crumb">${escapeHtml(crumb)}</div>` : ''}<p class="page-item-title">${checkHtml}<span>${escapeHtml(n.title || "Untitled")}</span></p><div class="page-item-snip">${escapeHtml(plainSnippet(n.content))}</div><div class="page-item-foot"><span>${fmtDate(n.updatedAt)}</span>${n.isTask && n.due ? `<span class="page-item-due ${overdue ? 'overdue' : ''}">${fmtDate(n.due)}</span>` : ''}</div>`;
+  div.innerHTML = `${crumb ? `<div class="page-item-crumb">${escapeHtml(crumb)}</div>` : ''}<p class="page-item-title">${checkHtml}<span class="page-item-title-text">${escapeHtml(n.title || "Untitled")}</span></p><div class="page-item-snip">${escapeHtml(plainSnippet(n.content))}</div><div class="page-item-foot"><span>${fmtDate(n.updatedAt)}</span>${n.isTask && n.due ? `<span class="page-item-due ${overdue ? 'overdue' : ''}">${fmtDate(n.due)}</span>` : ''}</div>`;
   
   div.addEventListener("click", (e) => {
     if (e.target.classList.contains("mini-check")) return;
