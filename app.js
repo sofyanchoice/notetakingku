@@ -5,7 +5,6 @@ const CLIENT_ID = "670272085628-e5s4aubec9fia1k31ppqm4k5c0tf64od.apps.googleuser
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
 const DATA_FILENAME = "catatan-app-data.json";
 const CACHE_KEY = "catatan_cache_v7";
-// Warna kini disatukan agar palet warna sesuai untuk Notebook & Section
 const COLORS = ["#FFD93D", "#FF5D8F", "#4CC9F0", "#B9E351", "#B98CE0", "#FF8B3D", "#6FE7C0"];
 
 /* ======================================================================
@@ -75,7 +74,13 @@ function loadCache() {
   if (raw) { try { state = migrate(JSON.parse(raw)); } catch (e) {} }
 }
 
-function saveCache() { localStorage.setItem(CACHE_KEY, JSON.stringify(state)); }
+function saveCache() { 
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(state)); 
+  } catch (error) {
+    console.warn("Penyimpanan lokal browser penuh, aplikasi akan bergantung pada Google Drive.");
+  }
+}
 
 function initGis() {
   tokenClient = google.accounts.oauth2.initTokenClient({
@@ -263,9 +268,11 @@ function crumbFor(n) {
 
 function plainText(md) {
   if (!md) return ""; let s = md;
-  s = s.replace(/`[\s\S]*?`/g, " "); s = s.replace(/`([^`]+)`/g, "$1");
-  s = s.replace(/!\[[^\]]\]\([^)]\)/g, " "); s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-  s = s.replace(/[#>*_~-]/g, " "); s = s.replace(/\s+/g, " ").trim();
+  s = s.replace(/!\[.*?\]\(.*?\)/g, " "); 
+  s = s.replace(/\[(.*?)\]\(.*?\)/g, "$1");
+  s = s.replace(/`[\s\S]*?`/g, " "); 
+  s = s.replace(/[#>*_~-]/g, " "); 
+  s = s.replace(/\s+/g, " ").trim();
   return s;
 }
 
@@ -401,11 +408,28 @@ function showContextMenu(e, type, id, name, extra = {}) {
   e.stopPropagation();
   let buttons = '';
   if (type === 'notebook') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
+    buttons = `
+      <button data-action="rename"><i class="ph-duotone ph-pencil-simple"></i> Rename</button>
+      <button data-action="color"><i class="ph-duotone ph-palette"></i> Change Color</button>
+      <div class="divider"></div>
+      <button data-action="delete" class="danger"><i class="ph-duotone ph-trash"></i> Delete Notebook</button>
+    `;
   } else if (type === 'section') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="new-sub">📂 Add Subsection</button><button data-action="new-page">📄 Add Note Here</button><div class="divider"></div><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
+    buttons = `
+      <button data-action="rename"><i class="ph-duotone ph-pencil-simple"></i> Rename</button>
+      <button data-action="color"><i class="ph-duotone ph-palette"></i> Change Color</button>
+      <button data-action="new-sub"><i class="ph-duotone ph-folder-plus"></i> Add Subsection</button>
+      <button data-action="new-page"><i class="ph-duotone ph-file-plus"></i> Add Note Here</button>
+      <div class="divider"></div>
+      <button data-action="delete" class="danger"><i class="ph-duotone ph-trash"></i> Delete Section</button>
+    `;
   } else if (type === 'note') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="move">➡️ Move to...</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
+    buttons = `
+      <button data-action="rename"><i class="ph-duotone ph-pencil-simple"></i> Rename</button>
+      <button data-action="move"><i class="ph-duotone ph-arrow-square-out"></i> Move to...</button>
+      <div class="divider"></div>
+      <button data-action="delete" class="danger"><i class="ph-duotone ph-trash"></i> Delete Note</button>
+    `;
   }
   ctxMenu.innerHTML = buttons;
   ctxMenu.classList.remove('hidden'); 
@@ -542,7 +566,7 @@ function handleMoveNote(noteId, targetSectionId) {
 }
 
 /* ======================================================================
-SIDEBAR COLLAPSE
+SIDEBAR COLLAPSE & TAGS MINIMIZE
 ====================================================================== */
 function applySidebarState() {
   const app = document.getElementById('app');
@@ -559,6 +583,20 @@ document.getElementById('btn-collapse-sidebar').addEventListener('click', () => 
   applySidebarState();
 });
 
+let tagsCollapsed = false;
+document.getElementById('toggle-tags').addEventListener('click', () => {
+  tagsCollapsed = !tagsCollapsed;
+  document.getElementById('tag-cloud').classList.toggle('hidden', tagsCollapsed);
+  const caret = document.getElementById('tags-caret');
+  if(tagsCollapsed) {
+    caret.classList.remove('ph-caret-down');
+    caret.classList.add('ph-caret-right');
+  } else {
+    caret.classList.add('ph-caret-down');
+    caret.classList.remove('ph-caret-right');
+  }
+});
+
 /* ======================================================================
 RESIZE HANDLE
 ====================================================================== */
@@ -573,7 +611,6 @@ function initResizeHandle() {
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
     const pagesCol = document.getElementById('col-pages');
-    // Memakai getBoundingClientRect() agar akurat & tidak dipengaruhi lebar sidebar
     const newPagesWidth = e.clientX - pagesCol.getBoundingClientRect().left;
     if (newPagesWidth > 200 && newPagesWidth < 800) {
       document.documentElement.style.setProperty('--pages-width', newPagesWidth + 'px');
@@ -594,6 +631,7 @@ VDITOR
 function initVditor() {
   if (vditorInstance) return;
   vditorInstance = new Vditor("vditor-container", {
+    lang: "en_US", // FIX TOOLTIP CHINESE
     mode: "ir",
     height: "100%",
     cache: { enable: false },
@@ -631,10 +669,13 @@ function initVditor() {
     },
     paste: (event) => {
       const items = (event.clipboardData || event.originalEvent.clipboardData).items;
-      for (let item of items) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
+      let hasImage = false;
+      // Perbaikan: Loop manual memastikan tidak memblokir copas text biasa
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file' && items[i].type.startsWith('image/')) {
+          hasImage = true;
           event.preventDefault();
-          const file = item.getAsFile();
+          const file = items[i].getAsFile();
           const reader = new FileReader();
           reader.onload = (e) => {
             const img = new Image();
@@ -653,15 +694,17 @@ function initVditor() {
               canvas.width = width;
               canvas.height = height;
               ctx.drawImage(img, 0, 0, width, height);
-              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75); // Kompresi JPEG 75%
+              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
               
               vditorInstance.insertValue(`\n![image](${compressedBase64})\n`);
             };
             img.src = e.target.result;
           };
           reader.readAsDataURL(file);
-          return false;
         }
+      }
+      if (hasImage) {
+        return false; // Matikan default paste HANYA JIKA sedang paste gambar
       }
     },
     after: () => {
@@ -862,7 +905,6 @@ function handleDropEvent(evt) {
   const toContainer = evt.to;
   const newSectionId = toContainer.dataset.sectionId === "root" ? null : toContainer.dataset.sectionId;
 
-  // Cek apakah yang digeser note atau section
   if (item.classList.contains('page-item')) {
     const note = noteById(item.dataset.id);
     if (note) note.sectionId = newSectionId;
@@ -871,7 +913,6 @@ function handleDropEvent(evt) {
     if (sec) sec.parentSectionId = newSectionId;
   }
 
-  // Update urutan semua saudara
   Array.from(toContainer.children).forEach((el, idx) => {
     if (el.classList.contains('page-item')) {
       const n = noteById(el.dataset.id);
@@ -908,7 +949,6 @@ function renderPageList() {
     title = nb ? nb.name : "—";
     document.getElementById("notebook-title").textContent = title;
 
-    // Gabungkan note tanpa section dan root sections untuk disortir bareng
     const rootItems = [
       ...state.notes.filter(n => n.notebookId === currentNotebookId && !n.sectionId).map(n => ({...n, _type: 'note'})),
       ...rootSectionsOf(currentNotebookId).map(s => ({...s, _type: 'section'}))
@@ -957,7 +997,6 @@ function renderSectionGroup(sec, depth) {
   const header = document.createElement("div");
   header.className = "section-header" + (isCollapsed ? " collapsed" : "") + (isActive ? " active-section" : "");
   header.style.background = COLORS[sec.color % COLORS.length];
-  // Mengganti rotasi CSS, kini murni JS mengubah karakter toggle
   header.innerHTML = `<span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${childItems.length}</span>`;
 
   header.addEventListener("click", (e) => {
@@ -1006,12 +1045,13 @@ function createPageItem(n, crumb) {
   div.dataset.id = n.id;
   
   const overdue = n.isTask && !n.done && n.due && n.due < today;
-  const checkHtml = n.isTask ? `<span class="mini-check ${n.done ? 'done' : ''}" data-id="${n.id}">${n.done ? '✓' : ''}</span>` : '';
+  const checkIcon = n.done ? '<i class="ph-bold ph-check"></i>' : '';
+  const checkHtml = n.isTask ? `<span class="mini-check ${n.done ? 'done' : ''}" data-id="${n.id}">${checkIcon}</span>` : '';
   
   div.innerHTML = `${crumb ? `<div class="page-item-crumb">${escapeHtml(crumb)}</div>` : ''}<p class="page-item-title">${checkHtml}<span class="page-item-title-text">${escapeHtml(n.title || "Untitled")}</span></p><div class="page-item-snip">${escapeHtml(plainSnippet(n.content))}</div><div class="page-item-foot"><span>${fmtDate(n.updatedAt)}</span>${n.isTask && n.due ? `<span class="page-item-due ${overdue ? 'overdue' : ''}">${fmtDate(n.due)}</span>` : ''}</div>`;
   
   div.addEventListener("click", (e) => {
-    if (e.target.classList.contains("mini-check")) return;
+    if (e.target.closest(".mini-check")) return;
     openNote(n.id);
   });
   
@@ -1024,6 +1064,13 @@ function createPageItem(n, crumb) {
       n.done = !n.done;
       n.updatedAt = new Date().toISOString();
       scheduleSave();
+      
+      // Jika terbuka di Editor, update juga tombol STATUS nya
+      if (currentNoteId === n.id) {
+         const tbDone = document.getElementById("tb-done");
+         tbDone.classList.toggle("active", n.done);
+         tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
+      }
       renderPageList();
     });
   }
@@ -1060,7 +1107,17 @@ function openNote(id) {
   document.getElementById("edit-category").value = (n.categories || []).map(t => '#' + t).join(' ');
   document.getElementById("edit-due").value = n.due || "";
   document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
+  
   document.getElementById("tb-task").classList.toggle("active", !!n.isTask);
+  
+  // Fitur Tombol Toggle Status "MARK DONE" di dalam Editor
+  const tbDone = document.getElementById("tb-done");
+  tbDone.classList.toggle("hidden", !n.isTask);
+  if (n.isTask) {
+    tbDone.classList.toggle("active", !!n.done);
+    tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
+  }
+
   document.getElementById("edit-savestate").textContent = "";
   toggleEditorEmpty(false);
   loadNoteIntoEditor(n);
@@ -1117,6 +1174,30 @@ document.getElementById("tb-task").addEventListener("click", () => {
   n.isTask = !n.isTask;
   document.getElementById("tb-task").classList.toggle("active", n.isTask);
   document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
+  
+  // Muncul/Hapus tombol Done
+  const tbDone = document.getElementById("tb-done");
+  tbDone.classList.toggle("hidden", !n.isTask);
+  if (n.isTask) {
+    tbDone.classList.toggle("active", !!n.done);
+    tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
+  }
+
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  queuePageListRefresh();
+});
+
+document.getElementById("tb-done").addEventListener("click", () => {
+  const n = noteById(currentNoteId);
+  if (!n || !n.isTask) return;
+  n.done = !n.done;
+  
+  const tbDone = document.getElementById("tb-done");
+  tbDone.classList.toggle("active", n.done);
+  tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
+  
   n.updatedAt = new Date().toISOString();
   markSavingLabel();
   scheduleSave();
