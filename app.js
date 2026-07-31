@@ -5,8 +5,8 @@ const CLIENT_ID = "670272085628-e5s4aubec9fia1k31ppqm4k5c0tf64od.apps.googleuser
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email";
 const DATA_FILENAME = "catatan-app-data.json";
 const CACHE_KEY = "catatan_cache_v7";
-const NB_COLORS = ["#FFD93D", "#FF5D8F", "#4CC9F0", "#B9E351", "#B98CE0", "#FF8B3D", "#6FE7C0"];
-const SEC_COLORS = ["#4CC9F0", "#B9E351", "#FF5D8F", "#B98CE0", "#FF8B3D", "#6FE7C0", "#FFD93D"];
+// Warna kini disatukan agar palet warna sesuai untuk Notebook & Section
+const COLORS = ["#FFD93D", "#FF5D8F", "#4CC9F0", "#B9E351", "#B98CE0", "#FF8B3D", "#6FE7C0"];
 
 /* ======================================================================
 STATE
@@ -49,10 +49,10 @@ function migrate(data) {
       order: s.order !== undefined ? s.order : i,
       color: s.color !== undefined ? s.color : 0
     }));
-    data.notes = (data.notes || []).map(n => {
-      if (n.notebookId) return n;
+    data.notes = (data.notes || []).map((n, i) => {
+      if (n.notebookId) return { ...n, order: n.order !== undefined ? n.order : i };
       const sec = data.sections.find(s => s.id === n.sectionId);
-      return { ...n, notebookId: sec ? sec.notebookId : (data.notebooks[0] ? data.notebooks[0].id : null) };
+      return { ...n, notebookId: sec ? sec.notebookId : (data.notebooks[0] ? data.notebooks[0].id : null), order: n.order !== undefined ? n.order : i };
     });
     return data;
   }
@@ -236,19 +236,20 @@ function notebookById(id) { return state.notebooks.find(n => n.id === id); }
 
 function rootSectionsOf(nbId) {
   return state.sections
-    .filter(s => s.notebookId === nbId && !s.parentSectionId)
-    .sort((a,b) => (a.order||0) - (b.order||0));
+    .filter(s => s.notebookId === nbId && !s.parentSectionId);
 }
 
 function childSectionsOf(parentId) {
-  return state.sections.filter(s => s.parentSectionId === parentId).sort((a,b) => (a.order||0) - (b.order||0));
+  return state.sections.filter(s => s.parentSectionId === parentId);
 }
 
 function allSectionsOf(nbId) {
-  return state.sections.filter(s => s.notebookId === nbId).sort((a,b) => (a.order||0) - (b.order||0));
+  return state.sections.filter(s => s.notebookId === nbId);
 }
 
-function allNotesOf(secId) { return state.notes.filter(n => n.sectionId === secId).sort((a,b) => (a.order||0) - (b.order||0)); }
+function allNotesOf(secId) {
+  return state.notes.filter(n => n.sectionId === secId);
+}
 
 function crumbFor(n) {
   if (n.sectionId) {
@@ -293,12 +294,13 @@ function getAllTags() {
 let modalKeyHandler = null;
 let selectedColor = null;
 
-function showCustomModal({ title, message, showInput = false, inputValue = '', confirmText = 'OK', confirmClass = 'btn-red', showColorPicker = false, initialColor = 0 }) {
+function showCustomModal({ title, message, showInput = false, inputValue = '', showSelect = false, selectOptions = [], confirmText = 'OK', confirmClass = 'btn-red', showColorPicker = false, initialColor = 0 }) {
   return new Promise((resolve) => {
     const modal = document.getElementById('custom-modal');
     const titleEl = document.getElementById('modal-title');
     const msgEl = document.getElementById('modal-message');
     const inputEl = document.getElementById('modal-input');
+    const selectEl = document.getElementById('modal-select');
     const colorPicker = document.getElementById('modal-color-picker');
     const confirmBtn = document.getElementById('modal-confirm');
     const cancelBtn = document.getElementById('modal-cancel');
@@ -315,12 +317,25 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
     } else {
       inputEl.classList.add('hidden');
     }
+
+    if (showSelect) {
+      selectEl.classList.remove('hidden');
+      selectEl.innerHTML = '';
+      selectOptions.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        selectEl.appendChild(option);
+      });
+    } else {
+      selectEl.classList.add('hidden');
+    }
     
     if (showColorPicker) {
       colorPicker.classList.remove('hidden');
       colorPicker.innerHTML = '';
       selectedColor = initialColor;
-      SEC_COLORS.forEach((color, idx) => {
+      COLORS.forEach((color, idx) => {
         const swatch = document.createElement('div');
         swatch.className = 'color-swatch' + (idx === initialColor ? ' selected' : '');
         swatch.style.background = color;
@@ -343,10 +358,15 @@ function showCustomModal({ title, message, showInput = false, inputValue = '', c
         document.removeEventListener('keydown', modalKeyHandler);
         modalKeyHandler = null;
       }
+      
+      let finalResult = true;
+      if (showInput) finalResult = inputEl.value.trim();
+      else if (showSelect) finalResult = selectEl.value;
+      
       if (showColorPicker) {
-        resolve({ value: showInput ? inputEl.value.trim() : true, color: selectedColor });
+        resolve(result ? { value: finalResult, color: selectedColor } : false);
       } else {
-        resolve(showInput ? inputEl.value.trim() : true);
+        resolve(result ? finalResult : false);
       }
     };
     
@@ -385,23 +405,19 @@ function showContextMenu(e, type, id, name, extra = {}) {
   } else if (type === 'section') {
     buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="new-sub">📂 Add Subsection</button><button data-action="new-page">📄 Add Note Here</button><div class="divider"></div><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
   } else if (type === 'note') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="move">➡️ Move to...</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
   }
   ctxMenu.innerHTML = buttons;
-  ctxMenu.classList.remove('hidden'); // Munculkan dulu agar bisa diukur ukurannya
+  ctxMenu.classList.remove('hidden'); 
   
   let x = e.clientX;
   let y = e.clientY;
   const menuWidth = ctxMenu.offsetWidth;
   const menuHeight = ctxMenu.offsetHeight;
   
-  // Deteksi Tepi Layar supaya menu tidak keluar / terpotong
-  if (x + menuWidth > window.innerWidth) {
-    x = window.innerWidth - menuWidth - 5;
-  }
-  if (y + menuHeight > window.innerHeight) {
-    y = window.innerHeight - menuHeight - 5;
-  }
+  // Agar tidak keluar / terpotong oleh layar
+  if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 5;
+  if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 5;
   
   ctxMenu.style.left = `${x}px`;
   ctxMenu.style.top = `${y}px`;
@@ -424,6 +440,11 @@ function showContextMenu(e, type, id, name, extra = {}) {
         if (result) handleNewSubSection(id, result);
       } else if (action === 'new-page') {
         handleNewPageInSection(id);
+      } else if (action === 'move') {
+        const sections = state.sections.filter(s => s.notebookId === currentNotebookId);
+        const options = [{ value: 'root', label: '(No Section)' }, ...sections.map(s => ({ value: s.id, label: s.name }))];
+        const result = await showCustomModal({ title: "Move Note", message: `Move "${name}" to:`, showSelect: true, selectOptions: options, confirmText: "Move", confirmClass: "btn-lime" });
+        if (result) handleMoveNote(id, result);
       }
     };
   });
@@ -510,6 +531,16 @@ function handleNewPageInSection(secId) {
   openNote(n.id);
 }
 
+function handleMoveNote(noteId, targetSectionId) {
+  const note = noteById(noteId);
+  if (note) {
+    note.sectionId = targetSectionId === 'root' ? null : targetSectionId;
+    note.updatedAt = new Date().toISOString();
+    scheduleSave();
+    renderPageList();
+  }
+}
+
 /* ======================================================================
 SIDEBAR COLLAPSE
 ====================================================================== */
@@ -541,9 +572,10 @@ function initResizeHandle() {
   });
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
-    const sidebarWidth = sidebarCollapsed ? 50 : 240;
-    const newPagesWidth = e.clientX - sidebarWidth - 4;
-    if (newPagesWidth > 200 && newPagesWidth < 600) {
+    const pagesCol = document.getElementById('col-pages');
+    // Memakai getBoundingClientRect() agar akurat & tidak dipengaruhi lebar sidebar
+    const newPagesWidth = e.clientX - pagesCol.getBoundingClientRect().left;
+    if (newPagesWidth > 200 && newPagesWidth < 800) {
       document.documentElement.style.setProperty('--pages-width', newPagesWidth + 'px');
     }
   });
@@ -600,7 +632,6 @@ function initVditor() {
     paste: (event) => {
       const items = (event.clipboardData || event.originalEvent.clipboardData).items;
       for (let item of items) {
-        // FITUR COMPRESS IMAGE (Fix lag saat paste)
         if (item.kind === 'file' && item.type.startsWith('image/')) {
           event.preventDefault();
           const file = item.getAsFile();
@@ -681,7 +712,7 @@ function renderNotebooks() {
     const count = state.notes.filter(n => secIds.includes(n.sectionId) || (!n.sectionId && n.notebookId === nb.id)).length;
     const li = document.createElement("li");
     li.className = "notebook-item" + (currentNotebookId === nb.id && mode === "normal" ? " active" : "");
-    li.innerHTML = `<span class="nb-dot" style="background:${NB_COLORS[nb.color % NB_COLORS.length]}"></span><span class="nb-name">${escapeHtml(nb.name)}</span><span class="nb-count">${count}</span>`;
+    li.innerHTML = `<span class="nb-dot" style="background:${COLORS[nb.color % COLORS.length]}"></span><span class="nb-name">${escapeHtml(nb.name)}</span><span class="nb-count">${count}</span>`;
     li.addEventListener("click", () => selectNotebook(nb.id));
     li.addEventListener("contextmenu", (e) => showContextMenu(e, 'notebook', nb.id, nb.name, { color: nb.color }));
     list.appendChild(li);
@@ -721,7 +752,7 @@ document.getElementById("btn-new-notebook").addEventListener("click", async () =
     confirmText: "Create",
     confirmClass: "btn-lime"
   });
-  if (!result.value) return;
+  if (!result || !result.value) return;
   const nb = { id: uid(), name: result.value, color: result.color };
   const sec = { id: uid(), notebookId: nb.id, parentSectionId: null, name: "General", color: 0, order: 0 };
   state.notebooks.push(nb);
@@ -788,7 +819,7 @@ document.getElementById("btn-new-section").addEventListener("click", async () =>
     confirmText: "Create",
     confirmClass: "btn-lime"
   });
-  if (!result.value) return;
+  if (!result || !result.value) return;
   const siblings = rootSectionsOf(currentNotebookId);
   const s = {
     id: uid(),
@@ -826,6 +857,35 @@ document.getElementById("btn-new-page").addEventListener("click", () => {
   openNote(n.id);
 });
 
+function handleDropEvent(evt) {
+  const item = evt.item;
+  const toContainer = evt.to;
+  const newSectionId = toContainer.dataset.sectionId === "root" ? null : toContainer.dataset.sectionId;
+
+  // Cek apakah yang digeser note atau section
+  if (item.classList.contains('page-item')) {
+    const note = noteById(item.dataset.id);
+    if (note) note.sectionId = newSectionId;
+  } else if (item.classList.contains('section-group')) {
+    const sec = sectionById(item.dataset.sectionId);
+    if (sec) sec.parentSectionId = newSectionId;
+  }
+
+  // Update urutan semua saudara
+  Array.from(toContainer.children).forEach((el, idx) => {
+    if (el.classList.contains('page-item')) {
+      const n = noteById(el.dataset.id);
+      if (n) n.order = idx;
+    } else if (el.classList.contains('section-group')) {
+      const s = sectionById(el.dataset.sectionId);
+      if (s) s.order = idx;
+    }
+  });
+
+  scheduleSave();
+  setTimeout(renderPageList, 50);
+}
+
 function renderPageList() {
   const wrap = document.getElementById("page-list");
   wrap.innerHTML = "";
@@ -836,61 +896,55 @@ function renderPageList() {
     title = `Search: "${searchQuery}"`;
     document.getElementById("notebook-title").textContent = title;
     document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
-    rows.forEach(n => {
-      const div = createPageItem(n, crumbFor(n));
-      wrap.appendChild(div);
-    });
+    rows.forEach(n => wrap.appendChild(createPageItem(n, crumbFor(n))));
   } else if (mode === "tag") {
     const rows = state.notes.filter(n => (n.categories || []).some(t => t.trim().toLowerCase() === activeTag));
     title = `Tag: "${activeTag}"`;
     document.getElementById("notebook-title").textContent = title;
     document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
-    rows.forEach(n => {
-      const div = createPageItem(n, crumbFor(n));
-      wrap.appendChild(div);
-    });
+    rows.forEach(n => wrap.appendChild(createPageItem(n, crumbFor(n))));
   } else if (mode === "normal" && currentNotebookId) {
-    const sections = rootSectionsOf(currentNotebookId);
     const nb = notebookById(currentNotebookId);
     title = nb ? nb.name : "—";
     document.getElementById("notebook-title").textContent = title;
 
-    const ungrouped = state.notes
-      .filter(n => n.notebookId === currentNotebookId && !n.sectionId)
-      .sort((a,b) => (b.order||0) - (a.order||0));
-    ungrouped.forEach(n => wrap.appendChild(createPageItem(n, null)));
+    // Gabungkan note tanpa section dan root sections untuk disortir bareng
+    const rootItems = [
+      ...state.notes.filter(n => n.notebookId === currentNotebookId && !n.sectionId).map(n => ({...n, _type: 'note'})),
+      ...rootSectionsOf(currentNotebookId).map(s => ({...s, _type: 'section'}))
+    ].sort((a,b) => (a.order||0) - (b.order||0));
 
     const rootWrap = document.createElement("div");
     rootWrap.className = "sections-wrap";
-    sections.forEach(sec => rootWrap.appendChild(renderSectionGroup(sec, 0)));
+    rootWrap.dataset.sectionId = "root";
+
+    rootItems.forEach(item => {
+      if (item._type === 'note') rootWrap.appendChild(createPageItem(item, null));
+      else rootWrap.appendChild(renderSectionGroup(item, 0));
+    });
+
     wrap.appendChild(rootWrap);
 
-    if (window.Sortable && sections.length > 1) {
+    if (window.Sortable) {
       Sortable.create(rootWrap, {
+        group: 'shared',
         animation: 150,
-        filter: '.toggle', // Supaya klik di segitiga tetap bisa expand/collapse
+        filter: '.toggle',
         preventOnFilter: false, 
         ghostClass: 'sortable-ghost',
-        onEnd: () => reorderSections(rootWrap)
+        onEnd: handleDropEvent
       });
     }
 
-    document.getElementById("pages-empty").classList.toggle("hidden", ungrouped.length > 0 || sections.length > 0);
+    document.getElementById("pages-empty").classList.toggle("hidden", rootItems.length > 0);
   }
 }
 
-function reorderSections(container) {
-  Array.from(container.children).forEach((el, idx) => {
-    const sec = sectionById(el.dataset.sectionId);
-    if (sec) sec.order = idx;
-  });
-  scheduleSave();
-  renderPageList();
-}
-
 function renderSectionGroup(sec, depth) {
-  const notes = allNotesOf(sec.id);
-  const children = childSectionsOf(sec.id);
+  const childItems = [
+    ...allNotesOf(sec.id).map(n => ({...n, _type: 'note'})),
+    ...childSectionsOf(sec.id).map(s => ({...s, _type: 'section'}))
+  ].sort((a,b) => (a.order||0) - (b.order||0));
 
   const group = document.createElement("div");
   group.className = "section-group";
@@ -902,8 +956,9 @@ function renderSectionGroup(sec, depth) {
 
   const header = document.createElement("div");
   header.className = "section-header" + (isCollapsed ? " collapsed" : "") + (isActive ? " active-section" : "");
-  header.style.background = SEC_COLORS[sec.color % SEC_COLORS.length];
-  header.innerHTML = `<span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
+  header.style.background = COLORS[sec.color % COLORS.length];
+  // Mengganti rotasi CSS, kini murni JS mengubah karakter toggle
+  header.innerHTML = `<span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${childItems.length}</span>`;
 
   header.addEventListener("click", (e) => {
     if (e.target.closest('.toggle')) {
@@ -922,51 +977,23 @@ function renderSectionGroup(sec, depth) {
   pagesContainer.className = "section-pages" + (isCollapsed ? " collapsed" : "");
   pagesContainer.dataset.sectionId = sec.id;
 
-  notes.forEach(n => {
-    const div = createPageItem(n, null);
-    pagesContainer.appendChild(div);
+  childItems.forEach(item => {
+    if (item._type === 'note') pagesContainer.appendChild(createPageItem(item, null));
+    else pagesContainer.appendChild(renderSectionGroup(item, depth + 1));
   });
 
   group.appendChild(header);
   group.appendChild(pagesContainer);
 
-  const childWrap = document.createElement("div");
-  childWrap.className = "child-sections" + (isCollapsed ? " collapsed" : "");
-  children.forEach(child => {
-    childWrap.appendChild(renderSectionGroup(child, depth + 1));
-  });
-  group.appendChild(childWrap);
-
   if (window.Sortable) {
     Sortable.create(pagesContainer, {
-      group: 'pages',
+      group: 'shared',
       animation: 150,
+      filter: '.toggle',
+      preventOnFilter: false,
       ghostClass: 'sortable-ghost',
-      onEnd: (evt) => {
-        const newSectionId = evt.to.dataset.sectionId;
-        const noteId = evt.item.dataset.id;
-        const note = noteById(noteId);
-        if (note) {
-          note.sectionId = newSectionId;
-          const items = evt.to.querySelectorAll('.page-item');
-          items.forEach((el, idx) => {
-            const n = noteById(el.dataset.id);
-            if (n) n.order = idx;
-          });
-          scheduleSave();
-          renderPageList();
-        }
-      }
+      onEnd: handleDropEvent
     });
-    if (children.length > 1) {
-      Sortable.create(childWrap, {
-        animation: 150,
-        filter: '.toggle',
-        preventOnFilter: false,
-        ghostClass: 'sortable-ghost',
-        onEnd: () => reorderSections(childWrap)
-      });
-    }
   }
 
   return group;
@@ -1023,10 +1050,6 @@ function toggleEditorEmpty(showEmpty) {
   document.getElementById("meta-row").classList.toggle("hidden", showEmpty);
   document.getElementById("vditor-container").classList.toggle("hidden", showEmpty);
   document.getElementById("btn-delete-note").classList.toggle("hidden", showEmpty);
-  
-  // Sembunyikan/munculkan tombol copas jika form editor kosong
-  document.getElementById("btn-copy-note").classList.toggle("hidden", showEmpty);
-  document.getElementById("btn-paste-note").classList.toggle("hidden", showEmpty);
 }
 
 function openNote(id) {
@@ -1110,27 +1133,6 @@ document.getElementById("btn-delete-note").addEventListener("click", async () =>
   });
   if (!ok) return;
   handleDelete('note', currentNoteId);
-});
-
-// EVENT LISTENER COPY PASTE NOTES
-document.getElementById("btn-copy-note").addEventListener("click", async () => {
-  if (!vditorInstance) return;
-  try {
-    await navigator.clipboard.writeText(vditorInstance.getValue());
-    alert("Isi note berhasil di-copy ke clipboard!");
-  } catch (err) {
-    console.error("Gagal copy text: ", err);
-  }
-});
-
-document.getElementById("btn-paste-note").addEventListener("click", async () => {
-  if (!vditorInstance) return;
-  try {
-    const text = await navigator.clipboard.readText();
-    vditorInstance.insertValue(text);
-  } catch (err) {
-    console.error("Gagal paste text: ", err);
-  }
 });
 
 /* ======================================================================
