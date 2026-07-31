@@ -88,17 +88,36 @@ function initGis() {
   });
   document.getElementById("signin-btn").addEventListener("click", () => {
     setGateStatus("Opening Google sign-in...");
-    tokenClient.requestAccessToken({ prompt: "consent" });
+    const hasConsented = localStorage.getItem("catatan_consented") === "true";
+    // Setelah pertama kali diizinkan, jangan paksa layar consent penuh lagi —
+    // ini yang menyebabkan harus klik berkali-kali setiap login.
+    tokenClient.requestAccessToken({ prompt: hasConsented ? "" : "consent" });
   });
+
+  const hasConsented = localStorage.getItem("catatan_consented") === "true";
   if (accessToken) {
     setGateStatus("Signing in automatically...");
     enterApp().catch(err => {
       console.error("Auto-login failed:", err);
       localStorage.removeItem("catatan_token");
       accessToken = null;
-      setGateStatus("Session expired. Please sign in again.");
+      attemptSilentLogin();
     });
+  } else if (hasConsented) {
+    // Sudah pernah diizinkan sebelumnya: coba login otomatis tanpa klik sama
+    // sekali, tanpa perlu menampilkan layar consent lagi.
+    attemptSilentLogin();
   }
+}
+
+function attemptSilentLogin() {
+  setGateStatus("Signing in automatically...");
+  tokenClient.requestAccessToken({ prompt: "" });
+  // Jika dalam beberapa detik tidak ada respons (mis. sesi Google sudah
+  // benar-benar habis), tampilkan tombol sign-in biasa sebagai fallback.
+  setTimeout(() => {
+    if (!accessToken) setGateStatus("Click the button to sign in.");
+  }, 4000);
 }
 
 function setGateStatus(msg) { document.getElementById("gate-status").textContent = msg || ""; }
@@ -112,6 +131,7 @@ async function onTokenResponse(resp) {
   }
   accessToken = resp.access_token;
   localStorage.setItem("catatan_token", accessToken);
+  localStorage.setItem("catatan_consented", "true");
   const ms = (resp.expires_in || 3500) * 1000 - 60000;
   setTimeout(() => tokenClient.requestAccessToken({ prompt: "" }), Math.max(ms, 10000));
   await enterApp();
@@ -145,14 +165,28 @@ async function enterApp() {
   setSyncStatus("syncing...", "saving");
   try {
     await driveEnsureFile();
-    const remote = await driveLoadData();
-    if (remote) {
-      state = migrate(remote);
-      saveCache();
-    } else { state = migrate(state); }
+    if (isDirty()) {
+      // Ada perubahan lokal dari sesi sebelumnya yang belum berhasil
+      // tersimpan ke Drive (mis. karena token kadaluarsa saat menyimpan).
+      // Simpan dulu ke Drive supaya catatan terbaru TIDAK tertimpa oleh
+      // data lama yang sedang ada di Drive.
+      await driveSaveData();
+    }
+    if (!isDirty()) {
+      const remote = await driveLoadData();
+      if (remote) {
+        state = migrate(remote);
+        saveCache();
+      } else { state = migrate(state); }
+    } else {
+      // Masih gagal tersimpan (mis. offline) — tetap pakai data lokal,
+      // jangan ambil dari Drive supaya tidak kehilangan perubahan.
+      state = migrate(state);
+    }
     setSyncStatus("connected", "ok");
   } catch (e) {
     console.error(e);
+    state = migrate(state);
     setSyncStatus("offline mode", "offline");
   }
   initVditor();
@@ -212,21 +246,56 @@ async function driveLoadData() {
   try { return JSON.parse(text); } catch (e) { return null; }
 }
 
-async function driveSaveData() {
+async function driveSaveData(retry) {
   if (!accessToken || !fileId) return;
   setSyncStatus("saving...", "saving");
   try {
-    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+    const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify(state)
     });
+    if (!r.ok) {
+      if (r.status === 401 && !retry) {
+        // Token kadaluarsa tepat saat menyimpan — refresh diam-diam lalu coba lagi sekali.
+        await refreshTokenSilently();
+        return driveSaveData(true);
+      }
+      throw new Error("Drive save failed with status " + r.status);
+    }
+    clearDirty();
     setSyncStatus("connected", "ok");
-  } catch (e) { setSyncStatus("offline mode", "offline"); }
+  } catch (e) {
+    console.error("Gagal menyimpan ke Drive, akan dicoba lagi:", e);
+    setSyncStatus("offline mode", "offline");
+    // Jangan biarkan perubahan hilang begitu saja: coba lagi otomatis nanti.
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(driveSaveData, 15000);
+  }
 }
+
+function refreshTokenSilently() {
+  return new Promise((resolve) => {
+    if (!tokenClient) return resolve();
+    tokenClient.callback = (resp) => {
+      tokenClient.callback = onTokenResponse;
+      if (!resp.error) {
+        accessToken = resp.access_token;
+        localStorage.setItem("catatan_token", accessToken);
+      }
+      resolve();
+    };
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
+
+function markDirty() { localStorage.setItem("catatan_dirty", "1"); }
+function clearDirty() { localStorage.removeItem("catatan_dirty"); }
+function isDirty() { return localStorage.getItem("catatan_dirty") === "1"; }
 
 function scheduleSave() {
   saveCache();
+  markDirty();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(driveSaveData, 1200);
 }
@@ -706,6 +775,19 @@ function initVditor() {
       if (hasImage) {
         return false; // Matikan default paste HANYA JIKA sedang paste gambar
       }
+
+      // Perbaikan: sebagian aplikasi (terutama di Windows) menyisipkan header
+      // metadata clipboard mentah ("Version:0.9 / StartHTML:.. / EndFragment:..")
+      // di depan teks yang di-paste. Deteksi dan buang header itu supaya yang
+      // masuk ke catatan hanya teks aslinya.
+      const cd = event.clipboardData || event.originalEvent.clipboardData;
+      const rawText = cd.getData('text/plain');
+      if (rawText && /^Version:\d/.test(rawText.trim())) {
+        const cleaned = rawText.replace(/^Version:[\s\S]*?EndFragment:\d+\s*/i, '').trim();
+        event.preventDefault();
+        vditorInstance.insertValue(cleaned || rawText);
+        return false;
+      }
     },
     after: () => {
       vditorReady = true;
@@ -969,7 +1051,7 @@ function renderPageList() {
       Sortable.create(rootWrap, {
         group: 'shared',
         animation: 150,
-        filter: '.toggle',
+        filter: '.toggle, .mini-check',
         preventOnFilter: false, 
         ghostClass: 'sortable-ghost',
         onEnd: handleDropEvent
@@ -1028,7 +1110,7 @@ function renderSectionGroup(sec, depth) {
     Sortable.create(pagesContainer, {
       group: 'shared',
       animation: 150,
-      filter: '.toggle',
+      filter: '.toggle, .mini-check',
       preventOnFilter: false,
       ghostClass: 'sortable-ghost',
       onEnd: handleDropEvent
@@ -1064,13 +1146,6 @@ function createPageItem(n, crumb) {
       n.done = !n.done;
       n.updatedAt = new Date().toISOString();
       scheduleSave();
-      
-      // Jika terbuka di Editor, update juga tombol STATUS nya
-      if (currentNoteId === n.id) {
-         const tbDone = document.getElementById("tb-done");
-         tbDone.classList.toggle("active", n.done);
-         tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
-      }
       renderPageList();
     });
   }
@@ -1109,14 +1184,6 @@ function openNote(id) {
   document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
   
   document.getElementById("tb-task").classList.toggle("active", !!n.isTask);
-  
-  // Fitur Tombol Toggle Status "MARK DONE" di dalam Editor
-  const tbDone = document.getElementById("tb-done");
-  tbDone.classList.toggle("hidden", !n.isTask);
-  if (n.isTask) {
-    tbDone.classList.toggle("active", !!n.done);
-    tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
-  }
 
   document.getElementById("edit-savestate").textContent = "";
   toggleEditorEmpty(false);
@@ -1174,30 +1241,7 @@ document.getElementById("tb-task").addEventListener("click", () => {
   n.isTask = !n.isTask;
   document.getElementById("tb-task").classList.toggle("active", n.isTask);
   document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
-  
-  // Muncul/Hapus tombol Done
-  const tbDone = document.getElementById("tb-done");
-  tbDone.classList.toggle("hidden", !n.isTask);
-  if (n.isTask) {
-    tbDone.classList.toggle("active", !!n.done);
-    tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
-  }
 
-  n.updatedAt = new Date().toISOString();
-  markSavingLabel();
-  scheduleSave();
-  queuePageListRefresh();
-});
-
-document.getElementById("tb-done").addEventListener("click", () => {
-  const n = noteById(currentNoteId);
-  if (!n || !n.isTask) return;
-  n.done = !n.done;
-  
-  const tbDone = document.getElementById("tb-done");
-  tbDone.classList.toggle("active", n.done);
-  tbDone.innerHTML = n.done ? '<i class="ph-bold ph-check-circle"></i> COMPLETED' : '<i class="ph-bold ph-circle"></i> MARK DONE';
-  
   n.updatedAt = new Date().toISOString();
   markSavingLabel();
   scheduleSave();
