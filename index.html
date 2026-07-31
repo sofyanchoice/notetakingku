@@ -4,57 +4,65 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>notetakingku</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23FFD93D'/><rect x='5' y='5' width='90' height='90' fill='%230D0D0D'/><text x='50' y='72' font-size='60' font-weight='900' text-anchor='middle' fill='%23FFD93D' font-family='Arial,sans-serif'>N</text></svg>">
+<link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vditor@3.9.7/dist/index.css" />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<script src="https://unpkg.com/vditor@3.10.4/dist/index.min.js"></script>
+<script src="https://unpkg.com/sortablejs@1.15.0/Sortable.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://cdn.jsdelivr.net/npm/vditor@3.9.7/dist/index.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 </head>
 <body>
 
-<!-- GATE (LOGIN) -->
+<!-- GATE -->
 <div id="gate" class="gate">
   <div class="gate-card">
     <div class="gate-mark">N</div>
     <h1 class="gate-title">notetakingku</h1>
     <p class="gate-sub">Notebooks, sections, and notes — written in markdown, saved to your own Google Drive.</p>
-    <button id="signin-btn" class="btn-brut btn-yellow btn-block">SIGN IN WITH GOOGLE</button>
+    <button id="signin-btn" class="btn-brut btn-block btn-yellow">SIGN IN WITH GOOGLE</button>
     <div id="gate-status" class="gate-note"></div>
   </div>
 </div>
 
 <!-- APP -->
 <div id="app" class="app hidden">
-  <!-- KOLOM 1: NOTEBOOKS (MINIMISABLE) -->
-  <div id="col-notebooks" class="col col-notebooks mobile-show">
+  
+  <!-- COL 1: NOTEBOOKS -->
+  <div class="col col-notebooks">
     <div class="col-head">
       <div class="brand">
         <div class="brand-mark">N</div>
         <div class="brand-name">notetakingku</div>
       </div>
-      <button id="btn-collapse-sidebar" class="collapse-btn" title="Minimize sidebar">◀</button>
+      <button id="btn-collapse-sidebar" class="collapse-btn">◀</button>
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages" style="display:none">←</button>
     </div>
+    
     <div class="sidebar-content">
       <div class="search-box">
-        <input type="text" id="search-input" placeholder="Search notes...">
-        <button id="search-clear" class="search-clear hidden">×</button>
+        <input type="text" id="search-input" placeholder="Search...">
+        <button class="search-clear hidden" id="search-clear">×</button>
       </div>
+      
       <div class="col-section-label">
         <span>NOTEBOOKS</span>
-        <button id="btn-new-notebook" class="mini-add" title="New notebook">+</button>
+        <button class="mini-add" id="btn-new-notebook">+</button>
       </div>
+      
       <ul id="notebook-list" class="notebook-list"></ul>
+      
       <div class="tag-cloud-section">
-        <div class="col-section-label"><span>TAGS</span></div>
+        <div class="col-section-label">
+          <span>TAGS</span>
+        </div>
         <div id="tag-cloud" class="tag-cloud"></div>
       </div>
     </div>
+    
     <div class="col-foot">
-      <div class="user-email" id="user-email"></div>
+      <div id="user-email" class="user-email"></div>
       <div class="sync-pill" id="sync-pill">
         <span class="sync-dot"></span>
         <span id="sync-label">sync</span>
@@ -63,41 +71,47 @@
     </div>
   </div>
 
-  <!-- KOLOM 2: SECTIONS + PAGES -->
-  <div id="col-pages" class="col col-pages">
-    <div class="col-head with-back">
-      <button id="btn-back-to-notebooks" class="btn-brut btn-back only-mobile">←</button>
-      <h2 id="notebook-title" class="col-title editable-title" title="Click to rename">—</h2>
+  <!-- COL 2: PAGES -->
+  <div class="col col-pages" id="col-pages">
+    <div class="col-head">
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-notebooks">←</button>
+      <h2 id="notebook-title" class="col-title editable-title">—</h2>
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-editor" style="display:none">→</button>
     </div>
     
     <div class="section-actions">
-      <button id="btn-new-section" class="mini-add-row">+ NEW SECTION</button>
-      <button id="btn-new-page" class="mini-add-row">+ NEW NOTE (UNCATEGORIZED)</button>
+      <button class="mini-add-row" id="btn-new-section">+ NEW SECTION</button>
+      <button class="mini-add-row" id="btn-new-uncategorized-note">+ NEW NOTE (UNCATEGORIZED)</button>
+      <button class="mini-add-row" id="btn-new-page">+ NEW NOTE</button>
     </div>
-
+    
     <div id="page-list" class="page-list"></div>
     <div id="pages-empty" class="empty-note hidden">No notes yet.</div>
   </div>
 
   <!-- RESIZE HANDLE -->
-  <div class="resize-handle" id="resize-handle"></div>
+  <div id="resize-handle" class="resize-handle"></div>
 
-  <!-- KOLOM 3: EDITOR -->
-  <div id="col-editor" class="col col-editor">
-    <div class="col-head with-back">
-      <button id="btn-back-to-pages" class="btn-brut btn-back only-mobile">←</button>
-      <input type="text" id="edit-title" class="edit-title" placeholder="Note title...">
-      <button id="btn-delete-note" class="btn-brut btn-del btn-red only-mobile">🗑</button>
+  <!-- COL 3: EDITOR -->
+  <div class="col col-editor">
+    <div class="col-head">
+      <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages">←</button>
+      <input type="text" id="edit-title" class="edit-title hidden" placeholder="Note title...">
+      <button class="only-mobile btn-brut btn-del hidden" id="btn-delete-note">🗑</button>
     </div>
+    
+    <div id="editor-empty" class="empty-note">Select or create a note to start writing.</div>
+    
     <div id="meta-row" class="meta-row hidden">
       <button id="tb-task" class="chip-toggle">✓ TASK</button>
       <input type="date" id="edit-due" class="chip-date hidden">
-      <input type="text" id="edit-category" class="chip-cat" placeholder="Tags (comma separated)">
+      <input type="text" id="edit-category" class="chip-cat" placeholder="#tags (space separated)">
     </div>
-    <div id="editor-empty" class="empty-note">Select or create a note to start writing.</div>
+    
     <div id="vditor-container" class="vditor-container hidden"></div>
+    
     <div class="editor-footer">
-      <span id="edit-savestate" class="save-state"></span>
+      <div id="edit-savestate" class="save-state"></div>
     </div>
   </div>
 </div>
@@ -107,7 +121,7 @@
   <div class="modal-box">
     <h3 id="modal-title">Confirm</h3>
     <p id="modal-message">Are you sure?</p>
-    <input type="text" id="modal-input" class="hidden" placeholder="Enter name...">
+    <input type="text" id="modal-input" class="hidden">
     <div id="modal-color-picker" class="color-picker hidden"></div>
     <div class="modal-actions">
       <button id="modal-cancel" class="btn-brut">Cancel</button>
