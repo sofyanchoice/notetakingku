@@ -51,11 +51,16 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .app.sidebar-collapsed .brand,
 .app.sidebar-collapsed .search-box,
 .app.sidebar-collapsed .col-section-label,
-.app.sidebar-collapsed .notebook-list,
 .app.sidebar-collapsed .tag-cloud-section,
 .app.sidebar-collapsed .col-foot {display:none;}
 
 .app.sidebar-collapsed .col-notebooks::before{content:'';display:block;width:100%;height:40px;background:var(--ink);margin-bottom:8px;}
+
+.app.sidebar-collapsed .notebook-list{display:flex;flex-direction:column;align-items:center;gap:10px;padding:0;}
+.app.sidebar-collapsed .notebook-item{border-width:2px;padding:6px;width:28px;height:28px;justify-content:center;gap:0;}
+.app.sidebar-collapsed .notebook-item .nb-name,
+.app.sidebar-collapsed .notebook-item .nb-count{display:none;}
+.app.sidebar-collapsed .notebook-item .nb-dot{width:12px;height:12px;}
 
 .brand{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
 .brand-mark{width:30px;height:30px;background:var(--ink);color:var(--yellow);font-weight:900;font-size:15px;display:flex;align-items:center;justify-content:center;border:2px solid var(--ink);flex-shrink:0;}
@@ -109,9 +114,16 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .section-header .sec-count{font-size:10px;opacity:.7;flex-shrink:0;}
 .section-header.collapsed .toggle{transform:rotate(-90deg);}
 .section-header.sortable-ghost{opacity:0.4;}
+.section-header.active-section{box-shadow:3px 3px 0 var(--ink);}
+.section-header .drag-handle{cursor:grab;font-size:14px;flex-shrink:0;opacity:.6;}
+.section-header .drag-handle:hover{opacity:1;}
+.section-header .drag-handle:active{cursor:grabbing;}
 
 .section-pages{display:flex;flex-direction:column;gap:8px;margin-top:8px;margin-left:8px;border-left:2px dashed var(--ink);padding-left:8px;}
 .section-pages.collapsed{display:none;}
+
+.child-sections.collapsed{display:none;}
+.child-sections .section-group{margin-top:8px;}
 
 .page-item{border:3px solid var(--ink);background:var(--surface);padding:10px 12px;cursor:pointer;box-shadow:3px 3px 0 var(--line-color, var(--ink));transition:transform .08s;min-width:0;overflow:hidden;} 
 .page-item:hover{transform:translate(-1px,-1px);}
@@ -119,7 +131,7 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .page-item.sortable-ghost{opacity:0.4;background:var(--cyan);}
 
 .page-item-title{font-weight:700;font-size:13.5px;margin:0 0 4px;display:flex;align-items:center;gap:6px;overflow:hidden;}
-.page-item-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
+.page-item-title .page-item-title-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
 
 .page-item-snip{font-size:11.5px;color:var(--muted);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;}
 
@@ -194,37 +206,4 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .col-editor.mobile-show{display:flex;}
 .col-notebooks{border-right:none;}
 .col-pages{border-right:none;}
-}
-
-/* Perbaiki checkbox - FIXED SIZE */
-.mini-check {
-  width: 16px !important;
-  height: 16px !important;
-  min-width: 16px !important;
-  min-height: 16px !important;
-  max-width: 16px !important;
-  max-height: 16px !important;
-  border: 2px solid var(--ink);
-  flex-shrink: 0;
-  flex-grow: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  background: var(--surface);
-  box-sizing: border-box;
-  line-height: 1;
-}
-
-.mini-check.done {
-  background: var(--lime);
-}
-
-/* Section header toggle */
-.section-header .toggle {
-  font-size: 10px;
-  width: 14px;
-  text-align: center;
-  flex-shrink: 0;
-  flex-grow: 0;
 }
