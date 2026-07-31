@@ -33,11 +33,11 @@
   <!-- COL 1: NOTEBOOKS -->
   <div class="col col-notebooks">
     <div class="col-head">
+      <button id="btn-collapse-sidebar" class="collapse-btn" title="Toggle Sidebar">☰</button>
       <div class="brand">
-        <!-- Ikon 'N' dihapus, diganti dengan favicon yang rapi -->
         <div class="brand-name">notetakingku</div>
+        <div class="brand-mark">n.</div>
       </div>
-      <button id="btn-collapse-sidebar" class="collapse-btn" title="Toggle Sidebar"></button>
       <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages" style="display:none">←</button>
     </div>
     
@@ -97,10 +97,6 @@
     <div class="col-head">
       <button class="only-mobile btn-brut btn-back" id="btn-back-to-pages">←</button>
       <input type="text" id="edit-title" class="edit-title hidden" placeholder="Note title...">
-      
-      <!-- Tombol Copy Paste dan Hapus -->
-      <button class="btn-brut btn-back hidden" id="btn-copy-note" title="Copy Note">📋</button>
-      <button class="btn-brut btn-back hidden" id="btn-paste-note" title="Paste to Note">📥</button>
       <button class="btn-brut btn-del hidden" id="btn-delete-note" title="Delete Note">🗑</button>
     </div>
     
@@ -126,6 +122,7 @@
     <h3 id="modal-title">Confirm</h3>
     <p id="modal-message">Are you sure?</p>
     <input type="text" id="modal-input" class="hidden">
+    <select id="modal-select" class="modal-select hidden"></select>
     <div id="modal-color-picker" class="color-picker hidden"></div>
     <div class="modal-actions">
       <button id="modal-cancel" class="btn-brut">Cancel</button>
