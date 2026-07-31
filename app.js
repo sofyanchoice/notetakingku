@@ -388,9 +388,23 @@ function showContextMenu(e, type, id, name, extra = {}) {
     buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
   }
   ctxMenu.innerHTML = buttons;
-  ctxMenu.style.left = `${e.clientX}px`;
-  ctxMenu.style.top = `${e.clientY}px`;
-  ctxMenu.classList.remove('hidden');
+  ctxMenu.classList.remove('hidden'); // Munculkan dulu agar bisa diukur ukurannya
+  
+  let x = e.clientX;
+  let y = e.clientY;
+  const menuWidth = ctxMenu.offsetWidth;
+  const menuHeight = ctxMenu.offsetHeight;
+  
+  // Deteksi Tepi Layar supaya menu tidak keluar / terpotong
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 5;
+  }
+  if (y + menuHeight > window.innerHeight) {
+    y = window.innerHeight - menuHeight - 5;
+  }
+  
+  ctxMenu.style.left = `${x}px`;
+  ctxMenu.style.top = `${y}px`;
   
   ctxMenu.querySelectorAll('button').forEach(btn => {
     btn.onclick = async () => {
@@ -501,13 +515,10 @@ SIDEBAR COLLAPSE
 ====================================================================== */
 function applySidebarState() {
   const app = document.getElementById('app');
-  const collapseBtn = document.getElementById('btn-collapse-sidebar');
   if (sidebarCollapsed) {
     app.classList.add('sidebar-collapsed');
-    collapseBtn.textContent = '▶';
   } else {
     app.classList.remove('sidebar-collapsed');
-    collapseBtn.textContent = '◀';
   }
 }
 
@@ -589,13 +600,33 @@ function initVditor() {
     paste: (event) => {
       const items = (event.clipboardData || event.originalEvent.clipboardData).items;
       for (let item of items) {
+        // FITUR COMPRESS IMAGE (Fix lag saat paste)
         if (item.kind === 'file' && item.type.startsWith('image/')) {
           event.preventDefault();
           const file = item.getAsFile();
           const reader = new FileReader();
           reader.onload = (e) => {
-            const base64 = e.target.result;
-            vditorInstance.insertValue(`\n![image](${base64})\n`);
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              const MAX_WIDTH = 1000;
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+              
+              canvas.width = width;
+              canvas.height = height;
+              ctx.drawImage(img, 0, 0, width, height);
+              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75); // Kompresi JPEG 75%
+              
+              vditorInstance.insertValue(`\n![image](${compressedBase64})\n`);
+            };
+            img.src = e.target.result;
           };
           reader.readAsDataURL(file);
           return false;
@@ -837,7 +868,8 @@ function renderPageList() {
     if (window.Sortable && sections.length > 1) {
       Sortable.create(rootWrap, {
         animation: 150,
-        handle: '.drag-handle',
+        filter: '.toggle', // Supaya klik di segitiga tetap bisa expand/collapse
+        preventOnFilter: false, 
         ghostClass: 'sortable-ghost',
         onEnd: () => reorderSections(rootWrap)
       });
@@ -871,7 +903,7 @@ function renderSectionGroup(sec, depth) {
   const header = document.createElement("div");
   header.className = "section-header" + (isCollapsed ? " collapsed" : "") + (isActive ? " active-section" : "");
   header.style.background = SEC_COLORS[sec.color % SEC_COLORS.length];
-  header.innerHTML = `<span class="drag-handle" title="Drag to reorder">⠿</span><span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
+  header.innerHTML = `<span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${notes.length}</span>`;
 
   header.addEventListener("click", (e) => {
     if (e.target.closest('.toggle')) {
@@ -880,7 +912,6 @@ function renderSectionGroup(sec, depth) {
       renderPageList();
       return;
     }
-    if (e.target.closest('.drag-handle')) return;
     currentSectionId = isActive ? null : sec.id;
     renderPageList();
   });
@@ -930,7 +961,8 @@ function renderSectionGroup(sec, depth) {
     if (children.length > 1) {
       Sortable.create(childWrap, {
         animation: 150,
-        handle: '.drag-handle',
+        filter: '.toggle',
+        preventOnFilter: false,
         ghostClass: 'sortable-ghost',
         onEnd: () => reorderSections(childWrap)
       });
@@ -991,6 +1023,10 @@ function toggleEditorEmpty(showEmpty) {
   document.getElementById("meta-row").classList.toggle("hidden", showEmpty);
   document.getElementById("vditor-container").classList.toggle("hidden", showEmpty);
   document.getElementById("btn-delete-note").classList.toggle("hidden", showEmpty);
+  
+  // Sembunyikan/munculkan tombol copas jika form editor kosong
+  document.getElementById("btn-copy-note").classList.toggle("hidden", showEmpty);
+  document.getElementById("btn-paste-note").classList.toggle("hidden", showEmpty);
 }
 
 function openNote(id) {
@@ -1074,6 +1110,27 @@ document.getElementById("btn-delete-note").addEventListener("click", async () =>
   });
   if (!ok) return;
   handleDelete('note', currentNoteId);
+});
+
+// EVENT LISTENER COPY PASTE NOTES
+document.getElementById("btn-copy-note").addEventListener("click", async () => {
+  if (!vditorInstance) return;
+  try {
+    await navigator.clipboard.writeText(vditorInstance.getValue());
+    alert("Isi note berhasil di-copy ke clipboard!");
+  } catch (err) {
+    console.error("Gagal copy text: ", err);
+  }
+});
+
+document.getElementById("btn-paste-note").addEventListener("click", async () => {
+  if (!vditorInstance) return;
+  try {
+    const text = await navigator.clipboard.readText();
+    vditorInstance.insertValue(text);
+  } catch (err) {
+    console.error("Gagal paste text: ", err);
+  }
 });
 
 /* ======================================================================
