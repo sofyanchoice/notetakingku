@@ -195,3 +195,60 @@ button{font-family:inherit;cursor:pointer;} input{font-family:inherit;}
 .col-notebooks{border-right:none;}
 .col-pages{border-right:none;}
 }
+
+/* Perbaiki checkbox agar tidak stretch */
+.mini-check {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  border: 2px solid var(--ink);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  background: var(--surface);
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.mini-check.done {
+  background: var(--lime);
+}
+
+/* Sidebar collapse - hanya tampilkan dot warna */
+.app.sidebar-collapsed .notebook-item {
+  padding: 6px 4px;
+  justify-content: center;
+}
+
+.app.sidebar-collapsed .nb-name,
+.app.sidebar-collapsed .nb-count {
+  display: none;
+}
+
+.app.sidebar-collapsed .nb-dot {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--ink);
+}
+
+/* Perbaiki tampilan subsection */
+.section-group {
+  margin-bottom: 16px;
+}
+
+.section-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  margin-left: 8px;
+  border-left: 2px dashed var(--ink);
+  padding-left: 8px;
+}
+
+.section-pages.collapsed {
+  display: none;
+}
