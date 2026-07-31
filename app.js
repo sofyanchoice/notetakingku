@@ -1,7 +1,11 @@
-// 1. IMPORT FIREBASE (Versi CDN)
+// 1. IMPORT FIREBASE (Versi CDN untuk HTML statis)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import {
+  getAuth, signInWithPopup, signOut, GoogleAuthProvider, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 /* ======================================================================
 KONFIGURASI FIREBASE
@@ -15,19 +19,25 @@ const firebaseConfig = {
   appId: "1:631047532487:web:73995848f93e0efb2633e2"
 };
 
+// 2. INISIALISASI MESIN FIREBASE
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// 3. SIAPKAN PROVIDER UNTUK LOGIN GOOGLE
 const provider = new GoogleAuthProvider();
 
 /* ======================================================================
-STATE & VARIABEL GLOBAL
+ELEMEN UI & VARIABEL APLIKASI
 ====================================================================== */
-const CACHE_KEY = "catatan_cache_v8"; // Naikkan versi cache
 const COLORS = ["#FFD93D", "#FF5D8F", "#4CC9F0", "#B9E351", "#B98CE0", "#FF8B3D", "#6FE7C0"];
+const CACHE_KEY = "notetakingku_cache_v1";
 
-let currentUser = null; // Menyimpan data user yang login
+/* ======================================================================
+STATE
+====================================================================== */
 let state = defaultState();
+let currentUser = null;
 let currentNotebookId = null;
 let currentSectionId = null;
 let currentNoteId = null;
@@ -80,76 +90,82 @@ window.addEventListener("load", () => {
   applySidebarState();
 });
 
-// Pantau status login secara otomatis (Menggantikan GDrive Auth lama)
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    currentUser = user;
-    document.getElementById("user-email").textContent = user.email || "";
-    await enterApp();
-  } else {
-    currentUser = null;
-    document.getElementById("app").classList.add("hidden");
-    document.getElementById("gate").classList.remove("hidden");
-    setGateStatus("Click the button to sign in.");
-  }
-});
-
-// Tombol Sign In
-document.getElementById("signin-btn").addEventListener("click", () => {
-  setGateStatus("Opening Google sign-in...");
-  signInWithPopup(auth, provider).catch(err => {
-    console.error("Login error:", err);
-    setGateStatus("Sign in failed. Try again.");
-  });
-});
-
-// Tombol Sign Out
-document.getElementById("signout-btn").addEventListener("click", () => {
-  signOut(auth).then(() => {
-    localStorage.removeItem(CACHE_KEY); // Bersihkan cache lokal saat logout
-  });
-});
-
-function setGateStatus(msg) { document.getElementById("gate-status").textContent = msg || ""; }
-
 function loadCache() {
   const raw = localStorage.getItem(CACHE_KEY);
   if (raw) { try { state = migrate(JSON.parse(raw)); } catch (e) {} }
 }
 
-function saveCache() { 
+function saveCache() {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(state)); 
+    localStorage.setItem(CACHE_KEY, JSON.stringify(state));
   } catch (error) {
-    console.warn("Storage penuh.");
+    console.warn("Penyimpanan lokal browser penuh, aplikasi akan bergantung pada Firestore.");
   }
 }
 
-function markDirty() { localStorage.setItem("catatan_dirty", "1"); }
-function clearDirty() { localStorage.removeItem("catatan_dirty"); }
-function isDirty() { return localStorage.getItem("catatan_dirty") === "1"; }
+function setGateStatus(msg) { document.getElementById("gate-status").textContent = msg || ""; }
+
+// Firebase menyimpan sesi login sendiri (IndexedDB), jadi begitu halaman
+// dimuat ulang, onAuthStateChanged akan otomatis memicu tanpa perlu klik lagi.
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    currentUser = user;
+    setGateStatus("Signing in...");
+    enterApp().catch(err => {
+      console.error("Failed to enter app:", err);
+      setGateStatus("Something went wrong. Please try again.");
+    });
+  } else {
+    currentUser = null;
+    document.getElementById("app").classList.add("hidden");
+    document.getElementById("gate").classList.remove("hidden");
+  }
+});
+
+document.getElementById("signin-btn").addEventListener("click", () => {
+  setGateStatus("Opening Google sign-in...");
+  signInWithPopup(auth, provider).catch((err) => {
+    console.error("Sign-in failed:", err);
+    setGateStatus("Sign-in failed or was cancelled. Please try again.");
+  });
+});
+
+document.getElementById("signout-btn").addEventListener("click", () => {
+  signOut(auth).then(() => {
+    setGateStatus("You have been signed out.");
+  });
+});
 
 /* ======================================================================
-MASUK APLIKASI & SINKRONISASI FIRESTORE
+MASUK APLIKASI + SYNC FIRESTORE
 ====================================================================== */
 async function enterApp() {
   document.getElementById("gate").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
-  
+  document.getElementById("user-email").textContent = currentUser.email || "";
   setSyncStatus("syncing...", "saving");
   try {
-    // Ambil data milik pengguna yang sedang login dari Firestore
-    const docRef = doc(db, "users", currentUser.uid);
-    const docSnap = await getDoc(docRef);
-
-    if (docSnap.exists() && !isDirty()) {
-      // Jika data ada di server dan tidak ada perubahan lokal yang tertunda
-      state = migrate(docSnap.data().state);
-      saveCache();
+    if (isDirty()) {
+      // Ada perubahan lokal dari sesi sebelumnya yang belum berhasil
+      // tersimpan ke Firestore. Simpan dulu supaya catatan terbaru TIDAK
+      // tertimpa oleh data lama yang sedang ada di server.
+      await firestoreSaveData();
+    }
+    if (!isDirty()) {
+      const remote = await firestoreLoadData();
+      if (remote) {
+        state = migrate(remote);
+        saveCache();
+      } else {
+        // Belum ada dokumen di Firestore sama sekali (pengguna baru) —
+        // buat dari data default/lokal yang ada sekarang.
+        state = migrate(state);
+        await firestoreSaveData();
+      }
     } else {
-      // Jika pengguna baru atau ada data lokal yang belum tersimpan
+      // Masih gagal tersimpan (mis. offline) — tetap pakai data lokal,
+      // jangan ambil dari server supaya tidak kehilangan perubahan.
       state = migrate(state);
-      await firestoreSaveData(); 
     }
     setSyncStatus("connected", "ok");
   } catch (e) {
@@ -157,7 +173,6 @@ async function enterApp() {
     state = migrate(state);
     setSyncStatus("offline mode", "offline");
   }
-
   initVditor();
   currentNotebookId = state.notebooks[0] ? state.notebooks[0].id : null;
   toggleEditorEmpty(true);
@@ -174,24 +189,41 @@ function setSyncStatus(label, m) {
   document.getElementById("sync-label").textContent = label;
 }
 
-// Menyimpan ke Firestore
+function userDocRef() {
+  // Satu dokumen per pengguna, disimpan di koleksi "notes" dengan ID = uid.
+  return doc(db, "notes", currentUser.uid);
+}
+
+async function firestoreLoadData() {
+  const snap = await getDoc(userDocRef());
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  if (!data || typeof data.payload !== "string") return null;
+  try { return JSON.parse(data.payload); } catch (e) { return null; }
+}
+
 async function firestoreSaveData() {
   if (!currentUser) return;
   setSyncStatus("saving...", "saving");
   try {
-    const docRef = doc(db, "users", currentUser.uid);
-    await setDoc(docRef, { state: state }, { merge: true }); // Simpan seluruh state ke 1 dokumen
-    
+    await setDoc(userDocRef(), {
+      payload: JSON.stringify(state),
+      updatedAt: serverTimestamp()
+    });
     clearDirty();
     setSyncStatus("connected", "ok");
   } catch (e) {
-    console.error("Gagal menyimpan ke Firestore:", e);
+    console.error("Gagal menyimpan ke Firestore, akan dicoba lagi:", e);
     setSyncStatus("offline mode", "offline");
-    
+    // Jangan biarkan perubahan hilang begitu saja: coba lagi otomatis nanti.
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(firestoreSaveData, 15000); // Coba lagi nanti jika gagal/offline
+    saveTimer = setTimeout(firestoreSaveData, 15000);
   }
 }
+
+function markDirty() { localStorage.setItem("catatan_dirty", "1"); }
+function clearDirty() { localStorage.removeItem("catatan_dirty"); }
+function isDirty() { return localStorage.getItem("catatan_dirty") === "1"; }
 
 function scheduleSave() {
   saveCache();
@@ -209,7 +241,8 @@ function sectionById(id) { return state.sections.find(s => s.id === id); }
 function notebookById(id) { return state.notebooks.find(n => n.id === id); }
 
 function rootSectionsOf(nbId) {
-  return state.sections.filter(s => s.notebookId === nbId && !s.parentSectionId);
+  return state.sections
+    .filter(s => s.notebookId === nbId && !s.parentSectionId);
 }
 
 function childSectionsOf(parentId) {
@@ -407,6 +440,7 @@ function showContextMenu(e, type, id, name, extra = {}) {
   const menuWidth = ctxMenu.offsetWidth;
   const menuHeight = ctxMenu.offsetHeight;
   
+  // Agar tidak keluar / terpotong oleh layar
   if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 5;
   if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 5;
   
@@ -492,7 +526,14 @@ function handleNewSubSection(parentId, name) {
   const parentSec = sectionById(parentId);
   if (!parentSec) return;
   const siblings = childSectionsOf(parentId);
-  const s = { id: uid(), notebookId: parentSec.notebookId, parentSectionId: parentId, name: name, color: parentSec.color, order: siblings.length };
+  const s = {
+    id: uid(),
+    notebookId: parentSec.notebookId,
+    parentSectionId: parentId,
+    name: name,
+    color: parentSec.color,
+    order: siblings.length
+  };
   state.sections.push(s);
   collapsedSections.delete(parentId);
   currentSectionId = s.id;
@@ -504,7 +545,11 @@ function handleNewPageInSection(secId) {
   const sec = sectionById(secId);
   if (!sec) return;
   currentSectionId = secId;
-  const n = { id: uid(), notebookId: sec.notebookId, sectionId: secId, title: "", content: "", categories: [], isTask: false, done: false, due: null, order: Date.now(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const n = {
+    id: uid(), notebookId: sec.notebookId, sectionId: secId, title: "", content: "",
+    categories: [], isTask: false, done: false, due: null, order: Date.now(),
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+  };
   state.notes.unshift(n);
   scheduleSave();
   renderPageList();
@@ -526,7 +571,11 @@ SIDEBAR COLLAPSE & TAGS MINIMIZE
 ====================================================================== */
 function applySidebarState() {
   const app = document.getElementById('app');
-  if (sidebarCollapsed) { app.classList.add('sidebar-collapsed'); } else { app.classList.remove('sidebar-collapsed'); }
+  if (sidebarCollapsed) {
+    app.classList.add('sidebar-collapsed');
+  } else {
+    app.classList.remove('sidebar-collapsed');
+  }
 }
 
 document.getElementById('btn-collapse-sidebar').addEventListener('click', () => {
@@ -540,7 +589,13 @@ document.getElementById('toggle-tags').addEventListener('click', () => {
   tagsCollapsed = !tagsCollapsed;
   document.getElementById('tag-cloud').classList.toggle('hidden', tagsCollapsed);
   const caret = document.getElementById('tags-caret');
-  if(tagsCollapsed) { caret.classList.remove('ph-caret-down'); caret.classList.add('ph-caret-right'); } else { caret.classList.add('ph-caret-down'); caret.classList.remove('ph-caret-right'); }
+  if(tagsCollapsed) {
+    caret.classList.remove('ph-caret-down');
+    caret.classList.add('ph-caret-right');
+  } else {
+    caret.classList.add('ph-caret-down');
+    caret.classList.remove('ph-caret-right');
+  }
 });
 
 /* ======================================================================
@@ -558,7 +613,9 @@ function initResizeHandle() {
     if (!isResizing) return;
     const pagesCol = document.getElementById('col-pages');
     const newPagesWidth = e.clientX - pagesCol.getBoundingClientRect().left;
-    if (newPagesWidth > 200 && newPagesWidth < 800) { document.documentElement.style.setProperty('--pages-width', newPagesWidth + 'px'); }
+    if (newPagesWidth > 200 && newPagesWidth < 800) {
+      document.documentElement.style.setProperty('--pages-width', newPagesWidth + 'px');
+    }
   });
   document.addEventListener('mouseup', () => {
     if (isResizing) {
@@ -575,39 +632,71 @@ VDITOR
 function initVditor() {
   if (vditorInstance) return;
   vditorInstance = new Vditor("vditor-container", {
-    lang: "en_US",
+    lang: "en_US", // FIX TOOLTIP CHINESE
     mode: "ir",
     height: "100%",
     cache: { enable: false },
     toolbar: [
-      { name: "headings", tipPosition: "s" }, { name: "bold", tipPosition: "s" }, { name: "italic", tipPosition: "s" }, { name: "strike", tipPosition: "s" }, "|",
-      { name: "list", tipPosition: "s" }, { name: "ordered-list", tipPosition: "s" }, { name: "check", tipPosition: "s" }, { name: "quote", tipPosition: "s" }, "|",
-      { name: "link", tipPosition: "s" }, { name: "upload", tipPosition: "s" }, "|",
-      { name: "undo", tipPosition: "s" }, { name: "redo", tipPosition: "s" }
+      { name: "headings", tipPosition: "s" },
+      { name: "bold", tipPosition: "s" },
+      { name: "italic", tipPosition: "s" },
+      { name: "strike", tipPosition: "s" },
+      "|",
+      { name: "list", tipPosition: "s" },
+      { name: "ordered-list", tipPosition: "s" },
+      { name: "check", tipPosition: "s" },
+      { name: "quote", tipPosition: "s" },
+      "|",
+      { name: "link", tipPosition: "s" },
+      { name: "upload", tipPosition: "s" },
+      "|",
+      { name: "undo", tipPosition: "s" },
+      { name: "redo", tipPosition: "s" }
     ],
     upload: {
-      url: '', accept: 'image/', max: 10 * 1024 * 1024,
+      url: '',
+      accept: 'image/',
+      max: 10 * 1024 * 1024,
       handler(files) {
-        const file = files[0]; const reader = new FileReader();
-        reader.onload = (e) => { const base64 = e.target.result; vditorInstance.insertValue(`![${file.name}](${base64})`); };
-        reader.readAsDataURL(file); return '';
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const base64 = e.target.result;
+          vditorInstance.insertValue(`![${file.name}](${base64})`);
+        };
+        reader.readAsDataURL(file);
+        return '';
       }
     },
     paste: (event) => {
       const items = (event.clipboardData || event.originalEvent.clipboardData).items;
       let hasImage = false;
+      // Perbaikan: Loop manual memastikan tidak memblokir copas text biasa
       for (let i = 0; i < items.length; i++) {
         if (items[i].kind === 'file' && items[i].type.startsWith('image/')) {
-          hasImage = true; event.preventDefault();
-          const file = items[i].getAsFile(); const reader = new FileReader();
+          hasImage = true;
+          event.preventDefault();
+          const file = items[i].getAsFile();
+          const reader = new FileReader();
           reader.onload = (e) => {
             const img = new Image();
             img.onload = () => {
-              const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
-              const MAX_WIDTH = 1000; let width = img.width; let height = img.height;
-              if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-              canvas.width = width; canvas.height = height; ctx.drawImage(img, 0, 0, width, height);
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              const MAX_WIDTH = 1000;
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+              
+              canvas.width = width;
+              canvas.height = height;
+              ctx.drawImage(img, 0, 0, width, height);
               const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+              
               vditorInstance.insertValue(`\n![image](${compressedBase64})\n`);
             };
             img.src = e.target.result;
@@ -615,18 +704,29 @@ function initVditor() {
           reader.readAsDataURL(file);
         }
       }
-      if (hasImage) return false;
+      if (hasImage) {
+        return false; // Matikan default paste HANYA JIKA sedang paste gambar
+      }
 
+      // Perbaikan: sebagian aplikasi (terutama di Windows) menyisipkan header
+      // metadata clipboard mentah ("Version:0.9 / StartHTML:.. / EndFragment:..")
+      // di depan teks yang di-paste. Deteksi dan buang header itu supaya yang
+      // masuk ke catatan hanya teks aslinya.
       const cd = event.clipboardData || event.originalEvent.clipboardData;
       const rawText = cd.getData('text/plain');
       if (rawText && /^Version:\d/.test(rawText.trim())) {
         const cleaned = rawText.replace(/^Version:[\s\S]*?EndFragment:\d+\s*/i, '').trim();
-        event.preventDefault(); vditorInstance.insertValue(cleaned || rawText); return false;
+        event.preventDefault();
+        vditorInstance.insertValue(cleaned || rawText);
+        return false;
       }
     },
     after: () => {
       vditorReady = true;
-      if (pendingNote) { loadNoteIntoEditor(pendingNote); pendingNote = null; }
+      if (pendingNote) {
+        loadNoteIntoEditor(pendingNote);
+        pendingNote = null;
+      }
     },
     input: (value) => { onEditorInput(value); }
   });
@@ -652,14 +752,17 @@ function onEditorInput(value) {
 function markSavingLabel() {
   document.getElementById("edit-savestate").textContent = "Saving...";
   clearTimeout(editorSaveLabelTimer);
-  editorSaveLabelTimer = setTimeout(() => { document.getElementById("edit-savestate").textContent = "Saved"; }, 1400);
+  editorSaveLabelTimer = setTimeout(() => {
+    document.getElementById("edit-savestate").textContent = "Saved";
+  }, 1400);
 }
 
 /* ======================================================================
 RENDER — KOLOM 1: NOTEBOOK + TAGS
 ====================================================================== */
 function renderNotebooks() {
-  const list = document.getElementById("notebook-list"); list.innerHTML = "";
+  const list = document.getElementById("notebook-list");
+  list.innerHTML = "";
   const sortedNotebooks = [...state.notebooks].sort((a,b) => a.name.localeCompare(b.name));
   sortedNotebooks.forEach(nb => {
     const secIds = state.sections.filter(s => s.notebookId === nb.id).map(s => s.id);
@@ -672,96 +775,192 @@ function renderNotebooks() {
     list.appendChild(li);
   });
   
-  const tagCloud = document.getElementById("tag-cloud"); tagCloud.innerHTML = "";
+  const tagCloud = document.getElementById("tag-cloud");
+  tagCloud.innerHTML = "";
   const tags = getAllTags();
-  if (tags.length === 0) { tagCloud.innerHTML = '<div style="font-size:10px;color:var(--muted);">No tags yet</div>'; } 
-  else {
+  if (tags.length === 0) {
+    tagCloud.innerHTML = '<div style="font-size:10px;color:var(--muted);">No tags yet</div>';
+  } else {
     tags.forEach(tag => {
       const chip = document.createElement('div');
       chip.className = 'tag-chip' + (activeTag === tag ? ' active' : '');
       chip.textContent = '#' + tag;
-      chip.onclick = () => { if (activeTag === tag) { activeTag = null; mode = "normal"; } else { activeTag = tag; mode = "tag"; } renderAll(); };
+      chip.onclick = () => {
+        if (activeTag === tag) {
+          activeTag = null;
+          mode = "normal";
+        } else {
+          activeTag = tag;
+          mode = "tag";
+        }
+        renderAll();
+      };
       tagCloud.appendChild(chip);
     });
   }
 }
 
 document.getElementById("btn-new-notebook").addEventListener("click", async () => {
-  const result = await showCustomModal({ title: "New Notebook", message: "Give your notebook a name:", showInput: true, showColorPicker: true, confirmText: "Create", confirmClass: "btn-lime" });
+  const result = await showCustomModal({
+    title: "New Notebook",
+    message: "Give your notebook a name:",
+    showInput: true,
+    showColorPicker: true,
+    confirmText: "Create",
+    confirmClass: "btn-lime"
+  });
   if (!result || !result.value) return;
   const nb = { id: uid(), name: result.value, color: result.color };
   const sec = { id: uid(), notebookId: nb.id, parentSectionId: null, name: "General", color: 0, order: 0 };
-  state.notebooks.push(nb); state.sections.push(sec);
-  scheduleSave(); selectNotebook(nb.id);
+  state.notebooks.push(nb);
+  state.sections.push(sec);
+  scheduleSave();
+  selectNotebook(nb.id);
 });
 
 document.getElementById("search-input").addEventListener("input", (e) => {
-  searchQuery = e.target.value.trim().toLowerCase(); mode = searchQuery ? "search" : "normal"; activeTag = null;
+  searchQuery = e.target.value.trim().toLowerCase();
+  mode = searchQuery ? "search" : "normal";
+  activeTag = null;
   document.getElementById("search-clear").classList.toggle("hidden", !searchQuery);
   renderAll();
   if (mode === "search") setMobileScreen("pages");
 });
 
 document.getElementById("search-clear").addEventListener("click", () => {
-  document.getElementById("search-input").value = ""; searchQuery = ""; mode = "normal";
-  document.getElementById("search-clear").classList.add("hidden"); renderAll();
+  document.getElementById("search-input").value = "";
+  searchQuery = "";
+  mode = "normal";
+  document.getElementById("search-clear").classList.add("hidden");
+  renderAll();
 });
 
 /* ======================================================================
 RENDER — KOLOM 2: SECTIONS + PAGES
 ====================================================================== */
-function selectNotebook(id) { currentNotebookId = id; mode = "normal"; activeTag = null; currentSectionId = null; renderAll(); setMobileScreen("pages"); }
+function selectNotebook(id) {
+  currentNotebookId = id;
+  mode = "normal";
+  activeTag = null;
+  currentSectionId = null;
+  renderAll();
+  setMobileScreen("pages");
+}
 
 document.getElementById("notebook-title").addEventListener("click", async () => {
   if (!currentNotebookId || mode !== "normal") return;
-  const nb = notebookById(currentNotebookId); if (!nb) return;
-  const result = await showCustomModal({ title: "Rename Notebook", message: `New name for "${nb.name}":`, showInput: true, inputValue: nb.name, confirmText: "Save", confirmClass: "btn-lime" });
-  if (result) { nb.name = result; scheduleSave(); renderAll(); }
+  const nb = notebookById(currentNotebookId);
+  if (!nb) return;
+  const result = await showCustomModal({
+    title: "Rename Notebook",
+    message: `New name for "${nb.name}":`,
+    showInput: true,
+    inputValue: nb.name,
+    confirmText: "Save",
+    confirmClass: "btn-lime"
+  });
+  if (result) {
+    nb.name = result;
+    scheduleSave();
+    renderAll();
+  }
 });
 
 document.getElementById("btn-new-section").addEventListener("click", async () => {
   if (!currentNotebookId) return;
-  const result = await showCustomModal({ title: "New Section", message: "Section name:", showInput: true, showColorPicker: true, confirmText: "Create", confirmClass: "btn-lime" });
+  const result = await showCustomModal({
+    title: "New Section",
+    message: "Section name:",
+    showInput: true,
+    showColorPicker: true,
+    confirmText: "Create",
+    confirmClass: "btn-lime"
+  });
   if (!result || !result.value) return;
   const siblings = rootSectionsOf(currentNotebookId);
-  const s = { id: uid(), notebookId: currentNotebookId, parentSectionId: null, name: result.value, color: result.color, order: siblings.length };
-  state.sections.push(s); currentSectionId = s.id; scheduleSave(); renderAll();
+  const s = {
+    id: uid(),
+    notebookId: currentNotebookId,
+    parentSectionId: null,
+    name: result.value,
+    color: result.color,
+    order: siblings.length
+  };
+  state.sections.push(s);
+  currentSectionId = s.id;
+  scheduleSave();
+  renderAll();
 });
 
 document.getElementById("btn-new-page").addEventListener("click", () => {
   if (mode !== "normal" || !currentNotebookId) return;
-  const n = { id: uid(), notebookId: currentNotebookId, sectionId: currentSectionId || null, title: "", content: "", categories: [], isTask: false, done: false, due: null, order: Date.now(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-  state.notes.unshift(n); scheduleSave(); renderPageList(); openNote(n.id);
+  const n = {
+    id: uid(),
+    notebookId: currentNotebookId,
+    sectionId: currentSectionId || null,
+    title: "",
+    content: "",
+    categories: [],
+    isTask: false,
+    done: false,
+    due: null,
+    order: Date.now(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  state.notes.unshift(n);
+  scheduleSave();
+  renderPageList();
+  openNote(n.id);
 });
 
 function handleDropEvent(evt) {
-  const item = evt.item; const toContainer = evt.to;
+  const item = evt.item;
+  const toContainer = evt.to;
   const newSectionId = toContainer.dataset.sectionId === "root" ? null : toContainer.dataset.sectionId;
-  if (item.classList.contains('page-item')) { const note = noteById(item.dataset.id); if (note) note.sectionId = newSectionId; } 
-  else if (item.classList.contains('section-group')) { const sec = sectionById(item.dataset.sectionId); if (sec) sec.parentSectionId = newSectionId; }
+
+  if (item.classList.contains('page-item')) {
+    const note = noteById(item.dataset.id);
+    if (note) note.sectionId = newSectionId;
+  } else if (item.classList.contains('section-group')) {
+    const sec = sectionById(item.dataset.sectionId);
+    if (sec) sec.parentSectionId = newSectionId;
+  }
 
   Array.from(toContainer.children).forEach((el, idx) => {
-    if (el.classList.contains('page-item')) { const n = noteById(el.dataset.id); if (n) n.order = idx; } 
-    else if (el.classList.contains('section-group')) { const s = sectionById(el.dataset.sectionId); if (s) s.order = idx; }
+    if (el.classList.contains('page-item')) {
+      const n = noteById(el.dataset.id);
+      if (n) n.order = idx;
+    } else if (el.classList.contains('section-group')) {
+      const s = sectionById(el.dataset.sectionId);
+      if (s) s.order = idx;
+    }
   });
-  scheduleSave(); setTimeout(renderPageList, 50);
+
+  scheduleSave();
+  setTimeout(renderPageList, 50);
 }
 
 function renderPageList() {
-  const wrap = document.getElementById("page-list"); wrap.innerHTML = ""; let title = "—";
+  const wrap = document.getElementById("page-list");
+  wrap.innerHTML = "";
+  let title = "—";
   
   if (mode === "search") {
     const rows = state.notes.filter(n => matchesSearch(n, searchQuery));
-    title = `Search: "${searchQuery}"`; document.getElementById("notebook-title").textContent = title;
+    title = `Search: "${searchQuery}"`;
+    document.getElementById("notebook-title").textContent = title;
     document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
     rows.forEach(n => wrap.appendChild(createPageItem(n, crumbFor(n))));
   } else if (mode === "tag") {
     const rows = state.notes.filter(n => (n.categories || []).some(t => t.trim().toLowerCase() === activeTag));
-    title = `Tag: "${activeTag}"`; document.getElementById("notebook-title").textContent = title;
+    title = `Tag: "${activeTag}"`;
+    document.getElementById("notebook-title").textContent = title;
     document.getElementById("pages-empty").classList.toggle("hidden", rows.length !== 0);
     rows.forEach(n => wrap.appendChild(createPageItem(n, crumbFor(n))));
   } else if (mode === "normal" && currentNotebookId) {
-    const nb = notebookById(currentNotebookId); title = nb ? nb.name : "—";
+    const nb = notebookById(currentNotebookId);
+    title = nb ? nb.name : "—";
     document.getElementById("notebook-title").textContent = title;
 
     const rootItems = [
@@ -769,13 +968,28 @@ function renderPageList() {
       ...rootSectionsOf(currentNotebookId).map(s => ({...s, _type: 'section'}))
     ].sort((a,b) => (a.order||0) - (b.order||0));
 
-    const rootWrap = document.createElement("div"); rootWrap.className = "sections-wrap"; rootWrap.dataset.sectionId = "root";
-    rootItems.forEach(item => { if (item._type === 'note') rootWrap.appendChild(createPageItem(item, null)); else rootWrap.appendChild(renderSectionGroup(item, 0)); });
+    const rootWrap = document.createElement("div");
+    rootWrap.className = "sections-wrap";
+    rootWrap.dataset.sectionId = "root";
+
+    rootItems.forEach(item => {
+      if (item._type === 'note') rootWrap.appendChild(createPageItem(item, null));
+      else rootWrap.appendChild(renderSectionGroup(item, 0));
+    });
+
     wrap.appendChild(rootWrap);
 
     if (window.Sortable) {
-      Sortable.create(rootWrap, { group: 'shared', animation: 150, filter: '.toggle, .mini-check', preventOnFilter: false, ghostClass: 'sortable-ghost', onEnd: handleDropEvent });
+      Sortable.create(rootWrap, {
+        group: 'shared',
+        animation: 150,
+        filter: '.toggle, .mini-check',
+        preventOnFilter: false, 
+        ghostClass: 'sortable-ghost',
+        onEnd: handleDropEvent
+      });
     }
+
     document.getElementById("pages-empty").classList.toggle("hidden", rootItems.length > 0);
   }
 }
@@ -786,95 +1000,196 @@ function renderSectionGroup(sec, depth) {
     ...childSectionsOf(sec.id).map(s => ({...s, _type: 'section'}))
   ].sort((a,b) => (a.order||0) - (b.order||0));
 
-  const group = document.createElement("div"); group.className = "section-group"; group.dataset.sectionId = sec.id; group.style.marginLeft = `${depth * 16}px`;
-  const isCollapsed = collapsedSections.has(sec.id); const isActive = currentSectionId === sec.id;
+  const group = document.createElement("div");
+  group.className = "section-group";
+  group.dataset.sectionId = sec.id;
+  group.style.marginLeft = `${depth * 16}px`;
 
-  const header = document.createElement("div"); header.className = "section-header" + (isCollapsed ? " collapsed" : "") + (isActive ? " active-section" : "");
+  const isCollapsed = collapsedSections.has(sec.id);
+  const isActive = currentSectionId === sec.id;
+
+  const header = document.createElement("div");
+  header.className = "section-header" + (isCollapsed ? " collapsed" : "") + (isActive ? " active-section" : "");
   header.style.background = COLORS[sec.color % COLORS.length];
   header.innerHTML = `<span class="toggle">${isCollapsed ? '▶' : '▼'}</span><span class="sec-title">${escapeHtml(sec.name)}</span><span class="sec-count">${childItems.length}</span>`;
 
   header.addEventListener("click", (e) => {
-    if (e.target.closest('.toggle')) { if (collapsedSections.has(sec.id)) collapsedSections.delete(sec.id); else collapsedSections.add(sec.id); renderPageList(); return; }
-    currentSectionId = isActive ? null : sec.id; renderPageList();
+    if (e.target.closest('.toggle')) {
+      if (collapsedSections.has(sec.id)) collapsedSections.delete(sec.id);
+      else collapsedSections.add(sec.id);
+      renderPageList();
+      return;
+    }
+    currentSectionId = isActive ? null : sec.id;
+    renderPageList();
   });
+
   header.addEventListener("contextmenu", (e) => showContextMenu(e, 'section', sec.id, sec.name, { color: sec.color }));
 
-  const pagesContainer = document.createElement("div"); pagesContainer.className = "section-pages" + (isCollapsed ? " collapsed" : ""); pagesContainer.dataset.sectionId = sec.id;
-  childItems.forEach(item => { if (item._type === 'note') pagesContainer.appendChild(createPageItem(item, null)); else pagesContainer.appendChild(renderSectionGroup(item, depth + 1)); });
-  group.appendChild(header); group.appendChild(pagesContainer);
+  const pagesContainer = document.createElement("div");
+  pagesContainer.className = "section-pages" + (isCollapsed ? " collapsed" : "");
+  pagesContainer.dataset.sectionId = sec.id;
 
-  if (window.Sortable) { Sortable.create(pagesContainer, { group: 'shared', animation: 150, filter: '.toggle, .mini-check', preventOnFilter: false, ghostClass: 'sortable-ghost', onEnd: handleDropEvent }); }
+  childItems.forEach(item => {
+    if (item._type === 'note') pagesContainer.appendChild(createPageItem(item, null));
+    else pagesContainer.appendChild(renderSectionGroup(item, depth + 1));
+  });
+
+  group.appendChild(header);
+  group.appendChild(pagesContainer);
+
+  if (window.Sortable) {
+    Sortable.create(pagesContainer, {
+      group: 'shared',
+      animation: 150,
+      filter: '.toggle, .mini-check',
+      preventOnFilter: false,
+      ghostClass: 'sortable-ghost',
+      onEnd: handleDropEvent
+    });
+  }
+
   return group;
 }
 
 function createPageItem(n, crumb) {
   const today = new Date().toISOString().slice(0, 10);
-  const div = document.createElement("div"); div.className = "page-item" + (currentNoteId === n.id ? " active" : ""); div.dataset.id = n.id;
+  const div = document.createElement("div");
+  div.className = "page-item" + (currentNoteId === n.id ? " active" : "");
+  div.dataset.id = n.id;
+  
   const overdue = n.isTask && !n.done && n.due && n.due < today;
   const checkIcon = n.done ? '<i class="ph-bold ph-check"></i>' : '';
   const checkHtml = n.isTask ? `<span class="mini-check ${n.done ? 'done' : ''}" data-id="${n.id}">${checkIcon}</span>` : '';
   
   div.innerHTML = `${crumb ? `<div class="page-item-crumb">${escapeHtml(crumb)}</div>` : ''}<p class="page-item-title">${checkHtml}<span class="page-item-title-text">${escapeHtml(n.title || "Untitled")}</span></p><div class="page-item-snip">${escapeHtml(plainSnippet(n.content))}</div><div class="page-item-foot"><span>${fmtDate(n.updatedAt)}</span>${n.isTask && n.due ? `<span class="page-item-due ${overdue ? 'overdue' : ''}">${fmtDate(n.due)}</span>` : ''}</div>`;
   
-  div.addEventListener("click", (e) => { if (e.target.closest(".mini-check")) return; openNote(n.id); });
+  div.addEventListener("click", (e) => {
+    if (e.target.closest(".mini-check")) return;
+    openNote(n.id);
+  });
+  
   div.addEventListener("contextmenu", (e) => showContextMenu(e, 'note', n.id, n.title || "Untitled"));
   
   const chk = div.querySelector(".mini-check");
-  if (chk) { chk.addEventListener("click", (e) => { e.stopPropagation(); n.done = !n.done; n.updatedAt = new Date().toISOString(); scheduleSave(); renderPageList(); }); }
+  if (chk) {
+    chk.addEventListener("click", (e) => {
+      e.stopPropagation();
+      n.done = !n.done;
+      n.updatedAt = new Date().toISOString();
+      scheduleSave();
+      renderPageList();
+    });
+  }
+  
   return div;
 }
 
-function renderAll() { renderNotebooks(); renderPageList(); }
-function queuePageListRefresh() { clearTimeout(pageListDebounce); pageListDebounce = setTimeout(renderPageList, 350); }
+function renderAll() {
+  renderNotebooks();
+  renderPageList();
+}
+
+function queuePageListRefresh() {
+  clearTimeout(pageListDebounce);
+  pageListDebounce = setTimeout(renderPageList, 350);
+}
 
 /* ======================================================================
 RENDER — KOLOM 3: EDITOR
 ====================================================================== */
 function toggleEditorEmpty(showEmpty) {
-  document.getElementById("editor-empty").classList.toggle("hidden", !showEmpty); document.getElementById("edit-title").classList.toggle("hidden", showEmpty);
-  document.getElementById("meta-row").classList.toggle("hidden", showEmpty); document.getElementById("vditor-container").classList.toggle("hidden", showEmpty); document.getElementById("btn-delete-note").classList.toggle("hidden", showEmpty);
+  document.getElementById("editor-empty").classList.toggle("hidden", !showEmpty);
+  document.getElementById("edit-title").classList.toggle("hidden", showEmpty);
+  document.getElementById("meta-row").classList.toggle("hidden", showEmpty);
+  document.getElementById("vditor-container").classList.toggle("hidden", showEmpty);
+  document.getElementById("btn-delete-note").classList.toggle("hidden", showEmpty);
 }
 
 function openNote(id) {
-  currentNoteId = id; const n = noteById(id); if (!n) return;
+  currentNoteId = id;
+  const n = noteById(id);
+  if (!n) return;
   document.getElementById("edit-title").value = n.title || "";
   document.getElementById("edit-category").value = (n.categories || []).map(t => '#' + t).join(' ');
-  document.getElementById("edit-due").value = n.due || ""; document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
-  document.getElementById("tb-task").classList.toggle("active", !!n.isTask); document.getElementById("edit-savestate").textContent = "";
-  toggleEditorEmpty(false); loadNoteIntoEditor(n); renderPageList(); setMobileScreen("editor");
+  document.getElementById("edit-due").value = n.due || "";
+  document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
+  
+  document.getElementById("tb-task").classList.toggle("active", !!n.isTask);
+
+  document.getElementById("edit-savestate").textContent = "";
+  toggleEditorEmpty(false);
+  loadNoteIntoEditor(n);
+  renderPageList();
+  setMobileScreen("editor");
 }
 
-document.getElementById("edit-title").addEventListener("keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); if (vditorInstance && vditorReady) { vditorInstance.focus(); } } });
+document.getElementById("edit-title").addEventListener("keydown", (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (vditorInstance && vditorReady) {
+      vditorInstance.focus();
+    }
+  }
+});
 
 document.getElementById("edit-title").addEventListener("input", () => {
-  const n = noteById(currentNoteId); if (!n) return;
-  n.title = document.getElementById("edit-title").value; n.updatedAt = new Date().toISOString();
-  markSavingLabel(); scheduleSave(); queuePageListRefresh();
+  const n = noteById(currentNoteId);
+  if (!n) return;
+  n.title = document.getElementById("edit-title").value;
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  queuePageListRefresh();
 });
 
 document.getElementById("edit-category").addEventListener("input", () => {
-  const n = noteById(currentNoteId); if (!n) return;
+  const n = noteById(currentNoteId);
+  if (!n) return;
   const raw = document.getElementById("edit-category").value;
-  n.categories = raw.split(/\s+/).map(s => s.trim()).filter(s => s.startsWith('#') && s.length > 1).map(s => s.slice(1).toLowerCase());
-  n.updatedAt = new Date().toISOString(); markSavingLabel(); scheduleSave(); renderNotebooks();
+  n.categories = raw.split(/\s+/)
+    .map(s => s.trim())
+    .filter(s => s.startsWith('#') && s.length > 1)
+    .map(s => s.slice(1).toLowerCase());
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  renderNotebooks();
 });
 
 document.getElementById("edit-due").addEventListener("input", () => {
-  const n = noteById(currentNoteId); if (!n) return;
-  n.due = document.getElementById("edit-due").value || null; n.updatedAt = new Date().toISOString();
-  markSavingLabel(); scheduleSave(); queuePageListRefresh();
+  const n = noteById(currentNoteId);
+  if (!n) return;
+  n.due = document.getElementById("edit-due").value || null;
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  queuePageListRefresh();
 });
 
 document.getElementById("tb-task").addEventListener("click", () => {
-  const n = noteById(currentNoteId); if (!n) return;
-  n.isTask = !n.isTask; document.getElementById("tb-task").classList.toggle("active", n.isTask); document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
-  n.updatedAt = new Date().toISOString(); markSavingLabel(); scheduleSave(); queuePageListRefresh();
+  const n = noteById(currentNoteId);
+  if (!n) return;
+  n.isTask = !n.isTask;
+  document.getElementById("tb-task").classList.toggle("active", n.isTask);
+  document.getElementById("edit-due").classList.toggle("hidden", !n.isTask);
+
+  n.updatedAt = new Date().toISOString();
+  markSavingLabel();
+  scheduleSave();
+  queuePageListRefresh();
 });
 
 document.getElementById("btn-delete-note").addEventListener("click", async () => {
   if (!currentNoteId) return;
-  const ok = await showCustomModal({ title: "Delete Note?", message: "Deleted notes cannot be recovered. Continue?", confirmText: "Delete", confirmClass: "btn-red" });
-  if (!ok) return; handleDelete('note', currentNoteId);
+  const ok = await showCustomModal({
+    title: "Delete Note?",
+    message: "Deleted notes cannot be recovered. Continue?",
+    confirmText: "Delete",
+    confirmClass: "btn-red"
+  });
+  if (!ok) return;
+  handleDelete('note', currentNoteId);
 });
 
 /* ======================================================================
@@ -882,7 +1197,9 @@ NAVIGASI MOBILE
 ====================================================================== */
 function setMobileScreen(name) {
   const show = { notebooks: "col-notebooks", pages: "col-pages", editor: "col-editor" }[name];
-  ["col-notebooks", "col-pages", "col-editor"].forEach(id => { document.getElementById(id).classList.toggle("mobile-show", id === show); });
+  ["col-notebooks", "col-pages", "col-editor"].forEach(id => {
+    document.getElementById(id).classList.toggle("mobile-show", id === show);
+  });
 }
 
 document.getElementById("btn-back-to-notebooks").addEventListener("click", () => setMobileScreen("notebooks"));
