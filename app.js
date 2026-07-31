@@ -246,6 +246,11 @@ function allSectionsOf(nbId) {
 
 function allNotesOf(secId) { return state.notes.filter(n => n.sectionId === secId).sort((a,b) => (a.order||0) - (b.order||0)); }
 
+function notesWithoutSection(nbId) {
+  const sectionIds = allSectionsOf(nbId).map(s => s.id);
+  return state.notes.filter(n => !n.sectionId || !sectionIds.includes(n.sectionId)).sort((a,b) => (a.order||0) - (b.order||0));
+}
+
 function crumbFor(n) {
   const sec = sectionById(n.sectionId);
   const nb = sec ? notebookById(sec.notebookId) : null;
@@ -375,9 +380,9 @@ function showContextMenu(e, type, id, name, extra = {}) {
   if (type === 'notebook') {
     buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="delete" class="danger">🗑️ Delete Notebook</button>`;
   } else if (type === 'section') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="new-sub">📂 Add Subsection</button><button data-action="new-page">📄 Add Note Here</button><div class="divider"></div><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="color">🎨 Change Color</button><button data-action="new-sub">📂 Add Subsection</button><button data-action="new-page"> Add Note Here</button><div class="divider"></div><button data-action="delete" class="danger">🗑️ Delete Section</button>`;
   } else if (type === 'note') {
-    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">️ Delete Note</button>`;
+    buttons = `<button data-action="rename">✏️ Rename</button><button data-action="delete" class="danger">🗑️ Delete Note</button>`;
   }
   ctxMenu.innerHTML = buttons;
   ctxMenu.style.left = `${e.clientX}px`;
@@ -701,26 +706,10 @@ function selectNotebook(id) {
   mode = "normal";
   activeTag = null;
   const sections = rootSectionsOf(id);
-  
-  // Pastikan ada "Uncategorized" section
-  let uncategorized = sections.find(s => s.name === "Uncategorized");
-  if (!uncategorized) {
-    uncategorized = {
-      id: uid(),
-      notebookId: id,
-      parentSectionId: null,
-      name: "Uncategorized",
-      color: 0,
-      order: 0
-    };
-    state.sections.push(uncategorized);
-    scheduleSave();
-  }
-  
-  if (sections.length === 0) {
-    currentSectionId = uncategorized.id;
-  } else {
+  if (sections.length > 0) {
     currentSectionId = sections[0].id;
+  } else {
+    currentSectionId = null;
   }
   renderAll();
   setMobileScreen("pages");
@@ -774,45 +763,19 @@ document.getElementById("btn-new-section").addEventListener("click", async () =>
 
 document.getElementById("btn-new-page").addEventListener("click", () => {
   if (mode !== "normal" || !currentNotebookId) return;
-  const sections = rootSectionsOf(currentNotebookId);
-  if (sections.length === 0) {
-    const s = { id: uid(), notebookId: currentNotebookId, parentSectionId: null, name: "General", color: 0, order: 0 };
-    state.sections.push(s);
-    currentSectionId = s.id;
-  }
-  const targetSectionId = currentSectionId || sections[0].id;
-  const n = {
-    id: uid(), sectionId: targetSectionId, title: "", content: "",
-    categories: [], isTask: false, done: false, due: null, order: Date.now(),
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-  };
-  state.notes.unshift(n);
-  scheduleSave();
-  renderPageList();
-  openNote(n.id);
-});
-
-// NEW: Button untuk note uncategorized
-document.getElementById("btn-new-uncategorized-note").addEventListener("click", () => {
-  if (!currentNotebookId) return;
-  const uncategorized = state.sections.find(s =>
-    s.notebookId === currentNotebookId &&
-    s.name === "Uncategorized" &&
-    !s.parentSectionId
-  );
-  if (!uncategorized) return;
   
+  // Create note in current active section, or without section if none active
   const n = {
-    id: uid(),
-    sectionId: uncategorized.id,
-    title: "",
+    id: uid(), 
+    sectionId: currentSectionId || null, 
+    title: "", 
     content: "",
-    categories: [],
-    isTask: false,
-    done: false,
-    due: null,
+    categories: [], 
+    isTask: false, 
+    done: false, 
+    due: null, 
     order: Date.now(),
-    createdAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(), 
     updatedAt: new Date().toISOString()
   };
   state.notes.unshift(n);
@@ -858,6 +821,24 @@ function renderPageList() {
         if (group.hasNotes) hasAnyNotes = true;
       }
     });
+    
+    // Show notes without section (uncategorized)
+    const uncategorizedNotes = notesWithoutSection(currentNotebookId);
+    if (uncategorizedNotes.length > 0) {
+      const div = document.createElement("div");
+      div.className = "section-group";
+      div.innerHTML = '<div class="section-header" style="background:var(--muted);cursor:default;"><span class="sec-title">Uncategorized</span><span class="sec-count">' + uncategorizedNotes.length + '</span></div>';
+      const pagesContainer = document.createElement("div");
+      pagesContainer.className = "section-pages";
+      pagesContainer.dataset.sectionId = "uncategorized";
+      uncategorizedNotes.forEach(n => {
+        const item = createPageItem(n, null);
+        pagesContainer.appendChild(item);
+      });
+      div.appendChild(pagesContainer);
+      wrap.appendChild(div);
+      hasAnyNotes = true;
+    }
     
     document.getElementById("pages-empty").classList.toggle("hidden", hasAnyNotes || sections.length > 0);
   }
